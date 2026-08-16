@@ -1,0 +1,77 @@
+.welcome-feature-card {
+  position: relative;
+  width: 156px;
+  height: 126px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(229, 231, 235, 0.9);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  overflow: hidden;
+  cursor: default;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+.welcome-feature-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(124, 58, 237, 0.28);
+  box-shadow: 0 22px 46px rgba(79, 70, 229, 0.16);
+}
+
+.welcome-feature-card__main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transition: opacity 0.2s ease, transform 0.2s ease, filter 0.2s ease;
+}
+
+.welcome-feature-card:hover .welcome-feature-card__main {
+  opacity: 0.2;
+  transform: scale(1.04);
+  filter: blur(3px);
+}
+
+.welcome-feature-card__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.welcome-feature-card__title {
+  color: #374151;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.welcome-feature-card__overlay {
+  position: absolute;
+  inset: 0;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.65;
+  font-weight: 600;
+  opacity: 0;
+  transform: translateY(8px);
+  background: rgba(255, 255, 255, 0.56);
+  backdrop-filter: blur(10px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.welcome-feature-card:hover .welcome-feature-card__overlay {
+  opacity: 1;
+  transform: translateY(0);
+}

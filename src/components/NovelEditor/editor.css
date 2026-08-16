@@ -1,0 +1,184 @@
+.novel-editor-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #FFFFFF;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.novel-editor-wrapper-fullscreen {
+  position: fixed;
+  top: 44px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: auto;
+  max-height: calc(100vh - 44px);
+  z-index: 2000;
+  border-radius: 0;
+}
+
+.novel-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid #F3F4F6;
+  background: #FAFAFA;
+  flex-shrink: 0;
+}
+
+.novel-editor-writing-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #F3F4F6;
+  background: #FFFFFF;
+  flex-shrink: 0;
+}
+
+.novel-editor-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 40px;
+}
+
+.novel-editor-area:focus {
+  outline: none;
+}
+
+.novel-editor-content-readonly {
+  cursor: default;
+  background-color: #FAFAFA;
+  user-select: text;
+}
+
+.novel-editor-content-readonly :deep(span),
+.novel-editor-content-readonly :deep(p),
+.novel-editor-content-readonly :deep(h1),
+.novel-editor-content-readonly :deep(h2),
+.novel-editor-content-readonly :deep(h3) {
+  pointer-events: none;
+}
+
+/* Tiptap 编辑器内容样式 */
+.novel-editor-content {
+  width: 100%;
+  min-height: 100%;
+  font-size: inherit;
+  font-family: inherit;
+  line-height: 2;
+  color: #1F2937;
+  outline: none;
+  caret-color: #4F46E5;
+}
+
+.novel-editor-content p {
+  margin: 0 0 8px 0;
+}
+
+.novel-editor-content h1 {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 24px 0 12px 0;
+  color: #111827;
+  line-height: 1.4;
+}
+
+.novel-editor-content h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 20px 0 10px 0;
+  color: #1F2937;
+  line-height: 1.4;
+}
+
+.novel-editor-content h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 16px 0 8px 0;
+  color: #374151;
+}
+
+.novel-editor-content strong {
+  font-weight: 700;
+}
+
+.novel-editor-content em {
+  font-style: italic;
+}
+
+.novel-editor-content s {
+  text-decoration: line-through;
+  color: #9CA3AF;
+}
+
+.novel-editor-content ul,
+.novel-editor-content ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.novel-editor-content li {
+  margin: 4px 0;
+}
+
+.novel-editor-content blockquote {
+  margin: 12px 0;
+  padding: 8px 16px;
+  border-left: 3px solid #4F46E5;
+  background: #EEF2FF;
+  color: #3730A3;
+  border-radius: 0 6px 6px 0;
+}
+
+.novel-editor-content code {
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+  background: #F3F4F6;
+  color: #7C3AED;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.novel-editor-content pre {
+  background: #1F2937;
+  color: #E5E7EB;
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.novel-editor-content pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+/* placeholder */
+.novel-editor-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #D1D5DB;
+  pointer-events: none;
+  height: 0;
+  font-style: italic;
+}
+
+/* 分隔线 */
+.novel-editor-content hr {
+  border: none;
+  border-top: 1px solid #E5E7EB;
+  margin: 20px 0;
+}
+
+/* 高亮 */
+.novel-editor-content mark {
+  background: #FEF08A;
+  color: #713F12;
+  padding: 1px 2px;
+  border-radius: 2px;
+}

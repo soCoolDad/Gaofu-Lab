@@ -1,0 +1,67 @@
+{
+  "name": "gaofu-lab",
+  "productName": "稿府 Lab",
+  "version": "0.1.0",
+  "description": "稿府 Lab · 本地 AI 创作辅助工具",
+  "author": {
+    "name": "soCoolDad",
+    "email": "806516788@qq.com"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/soCoolDad/gaofu-lab",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soCoolDad/gaofu-lab.git"
+  },
+  "bugs": {
+    "url": "https://github.com/soCoolDad/gaofu-lab/issues",
+    "email": "806516788@qq.com"
+  },
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && electron-builder",
+    "preview": "vite preview",
+    "electron:dev": "vite",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.3.7",
+    "@mdxeditor/editor": "^4.0.4",
+    "@tiptap/extension-character-count": "^2.4.0",
+    "@tiptap/extension-highlight": "^2.4.0",
+    "@tiptap/extension-placeholder": "^2.4.0",
+    "@tiptap/extension-typography": "^2.4.0",
+    "@tiptap/pm": "^2.4.0",
+    "@tiptap/react": "^2.4.0",
+    "@tiptap/starter-kit": "^2.4.0",
+    "antd": "^5.18.0",
+    "better-sqlite3": "^11.1.2",
+    "drizzle-orm": "^0.33.0",
+    "jsonrepair": "^3.15.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^6.24.0",
+    "remark-gfm": "^4.0.1",
+    "uuid": "^10.0.0",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "drizzle-kit": "^0.24.0",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.4.5",
+    "vite": "^5.3.1",
+    "vite-plugin-electron": "^0.28.7",
+    "vite-plugin-electron-renderer": "^0.14.5",
+    "wait-on": "^7.2.0"
+  }
+}

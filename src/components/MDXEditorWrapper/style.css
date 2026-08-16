@@ -1,0 +1,180 @@
+/* 编辑器包裹层：撑满父级，内部布局用 flex 分工具栏 + 滚动内容 */
+.mdx-editor-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #fff;
+  position: relative;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.mdx-editor-wrapper .mdx-editor-content {
+  padding: 3px 20px 20px;
+  font-size: 15px;
+  line-height: 1.8;
+  outline: none;
+}
+
+/* MDXEditor 本体撑满 wrapper */
+.mdx-editor-wrapper .mdxeditor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  background: transparent;
+}
+
+/* 排除工具栏（CSS Module 生成 _toolbarRoot_xxx 类名），其余子级承担滚动 */
+.mdx-editor-wrapper .mdxeditor > div:not([class*='toolbarRoot']) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.mdx-editor-wrapper .mdxeditor [role="textbox"] {
+  flex: 1;
+  min-height: 0;
+  max-height: none !important;
+}
+
+/* 写作模式样式（正文编辑器） */
+.mdx-writing-wrapper {
+  background: #ffffff;
+}
+
+.mdx-writing-wrapper .mdx-editor-content {
+  padding: 7px 32px 24px;
+  font-size: 16px;
+  line-height: 2;
+}
+
+.mdx-writing-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  background: #f9fafb;
+  border-top: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.mdx-save-btn {
+  padding: 8px 20px;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.mdx-save-btn:hover {
+  background: #4338ca;
+}
+
+/* 只读模式样式 */
+.mdx-readonly-wrapper .mdx-editor-content {
+  padding: 12px 16px;
+  background: transparent;
+}
+
+/* 自定义工具栏：白底、无圆角、铺满宽度、固定高度、无滚动条 */
+.mdx-editor-wrapper [data-toolbar],
+.mdx-editor-wrapper .mdxeditor [class*='toolbarRoot'] {
+  background: #ffffff !important;
+  border: none !important;
+  border-top: 1px solid #e5e7eb !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  border-radius: 0 !important;
+  padding: 8px 12px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  min-height: 0 !important;
+  height: 46px !important;
+  flex-shrink: 0 !important;
+  align-items: center !important;
+  position: static !important;
+  overflow: visible !important;
+  gap: 0 !important;
+}
+
+.mdx-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+}
+
+.mdx-toolbar-left,
+.mdx-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mdx-tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #374151;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.mdx-tb-btn:hover {
+  background: #f3f4f6;
+}
+
+.mdx-tb-btn.active {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+
+.mdx-tb-btn.active:hover {
+  background: #e0e7ff;
+  color: #4f46e5;
+}
+
+.mdx-editor-wrapper [data-toolbar] select {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+  color: #374151;
+  cursor: pointer;
+}
+
+/* 全屏模式：覆盖窗口内容区，避开顶部 44px 应用标题栏（稿府 Lab） */
+.mdx-editor-wrapper.mdx-fullscreen {
+  position: fixed;
+  top: 44px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  height: auto;
+  border-radius: 0;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.mdx-editor-wrapper.mdx-fullscreen .mdx-editor-content {
+  padding: 32px max(48px, calc((100% - 900px) / 2));
+}

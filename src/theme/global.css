@@ -1,0 +1,290 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: #F6F7FB;
+  color: #111827;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.agent-model-select {
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+}
+
+.agent-model-select:hover {
+  background: #F3F4F6;
+}
+
+.agent-model-select .ant-select-selector {
+  padding: 2px 6px !important;
+  border: none !important;
+  background: transparent !important;
+  border-radius: 8px !important;
+}
+
+.agent-model-select:hover .ant-select-selector {
+  background: #F3F4F6 !important;
+}
+
+.agent-model-option {
+  padding: 8px 12px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background-color 0.15s ease;
+}
+
+.agent-model-option:hover {
+  background: #F3F4F6;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
+}
+
+.hover-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+}
+
+.hover-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
+}
+
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.hide-scrollbar::-webkit-scrollbar-thumb,
+.hide-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 侧边栏菜单自定义 */
+.ai-message-top-right {
+  text-align: right;
+}
+
+.ai-message-top-right .ant-message-notice-content {
+  margin-left: auto;
+  margin-right: 24px;
+}
+
+.sider-menu .ant-menu-item {
+  margin: 2px 8px;
+  width: calc(100% - 16px);
+  padding-inline: 12px !important;
+}
+
+.sider-menu .ant-menu-submenu-title {
+  margin: 2px 8px;
+  padding-inline: 12px !important;
+  width: calc(100% - 16px);
+}
+
+.sider-menu .ant-menu-title-content {
+  font-weight: 500;
+}
+
+.workspace-menu .ant-menu-submenu-title .ant-menu-title-content {
+  color: #9CA3AF;
+  font-weight: 400;
+}
+
+.workspace-menu .ant-menu-submenu-title {
+  color: #9CA3AF;
+}
+
+.workspace-menu .ant-menu-submenu-open > .ant-menu-submenu-title {
+  color: #9CA3AF;
+}
+
+.workspace-menu .ant-menu-submenu-selected > .ant-menu-submenu-title,
+.workspace-menu .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-title-content,
+.workspace-menu .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+  color: #4F46E5;
+}
+
+.workspace-menu .ant-menu-submenu-arrow {
+  color: #CBD5E1;
+}
+
+.workspace-menu .ant-menu-item .ant-menu-title-content {
+  font-weight: 500;
+}
+
+.sider-menu .ant-menu-inline-collapsed .ant-menu-item-group-title {
+  padding-inline: 0 !important;
+  text-align: center;
+}
+
+.sider-menu .ant-menu-inline-collapsed .ant-menu-item {
+  margin: 2px auto;
+  width: 40px;
+}
+
+.sider-menu .ant-menu-inline-collapsed .ant-menu-item .ant-menu-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.agent-progress-collapse .ant-collapse-header {
+  align-items: center !important;
+  padding: 8px 12px !important;
+}
+
+.agent-progress-collapse .ant-collapse-expand-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 22px !important;
+}
+
+.agent-progress-collapse .ant-collapse-header-text {
+  min-width: 0;
+}
+
+.agent-result-collapse .ant-collapse-header {
+  align-items: center !important;
+  padding: 8px 10px !important;
+}
+
+.agent-result-collapse .ant-collapse-header-text {
+  min-width: 0;
+}
+
+.agent-result-collapse .ant-collapse-extra {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: 8px !important;
+}
+
+.agent-result-collapse .ant-collapse-content-box {
+  padding: 0 10px 10px !important;
+}
+
+.agent-result-collapse .ant-collapse-expand-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 24px !important;
+}
+
+.editor-context-collapse .ant-collapse-header {
+  align-items: center !important;
+  padding: 7px 4px 7px 10px !important;
+  min-height: 32px !important;
+  border-radius: 0 !important;
+  transition: background-color 0.15s ease;
+}
+
+.editor-context-collapse .ant-collapse-item {
+  border-radius: 0 !important;
+}
+
+.editor-context-collapse .ant-collapse-content {
+  border-radius: 0 !important;
+}
+
+.editor-context-collapse .ant-collapse-item:last-child .ant-collapse-header {
+  border-radius: 0 !important;
+}
+
+.editor-context-collapse .ant-collapse-header:hover {
+  background-color: #F3F4F6 !important;
+}
+
+.editor-context-collapse .ant-collapse-item-active .ant-collapse-header {
+  background-color: #F9FAFB !important;
+}
+
+.editor-context-collapse .ant-collapse-expand-icon {
+  padding-inline-end: 4px !important;
+  height: 20px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+.editor-context-collapse .ant-collapse-header-text {
+  font-size: 13px;
+  color: #111827;
+}
+
+.editor-context-collapse .ant-collapse-content-box {
+  padding: 10px !important;
+}
+
+.ai-completion-notice-compact {
+  width: auto !important;
+  max-width: 280px !important;
+  padding: 10px 14px !important;
+  border-radius: 10px !important;
+}
+
+.ai-completion-notice-compact .ant-notification-notice-message {
+  margin-bottom: 0 !important;
+  font-size: 13px !important;
+  line-height: 22px !important;
+}
+
+.ai-completion-notice-compact .ant-notification-notice-btn {
+  margin-top: 0 !important;
+}
+
+/* 卡片阴影弱化 */
+.ant-card {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.ant-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* 快照面板 · 关系角色名：悬停灰底，可点击查看角色详情 */
+.snapshot-rel-name:hover {
+  background-color: #E5E7EB;
+}
