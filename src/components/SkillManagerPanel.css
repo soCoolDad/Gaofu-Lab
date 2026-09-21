@@ -1,0 +1,4 @@
+/* 技能列表：去掉最后一行的底边框，避免列表下方出现一条多余的横线 */
+.skill-manager-table .ant-table-tbody > tr:last-child > td {
+  border-bottom: none;
+}

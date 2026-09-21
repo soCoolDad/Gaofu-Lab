@@ -13,6 +13,7 @@ import {
   chatRoomCharacterModels,
 } from '../db/schema'
 import { clearPromptCacheMemo } from './ai.utils'
+import { SAMPLING_TASKS } from '../utils/sampling'
 
 function deleteAll(table: any) {
   getDb().delete(table).run()
@@ -50,6 +51,11 @@ export function registerSettingsIpc() {
     }
     return true
   })
+
+  // 「任务默认模型参数」的任务注册表（key / 名称 / 说明 / 内置默认温度）。
+  // 注册表由后端维护（electron/utils/sampling.ts），渲染层只做展示，避免两处数据源漂移。
+  // 任务的具体配置值存在 ai_settings.data.taskSampling 里，仍走上面的 get/saveAiSettings。
+  ipcMain.handle('settings:getSamplingTasks', async () => SAMPLING_TASKS)
 
   ipcMain.handle('settings:clearModels', async () => {
     deleteAll(modelProviders)

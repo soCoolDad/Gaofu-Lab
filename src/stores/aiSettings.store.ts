@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { TaskSamplingConfig, TaskSamplingSettings } from '@/types/api'
 
 export type AiSettingsValues = {
   smartContextEnabled: boolean
@@ -23,6 +24,12 @@ export type AiSettingsValues = {
   writeContextNextChapterOutline: boolean
   writeContextPrevChapterMemory: boolean
   writeContextTotalMemory: boolean
+  /**
+   * 「设置 → 任务默认模型参数」：每个任务（key 见后端 electron/utils/sampling.ts 的 SAMPLING_TASKS）
+   * 的采样参数覆盖。取值优先级：任务自定义 > 模型管理里给模型配的采样参数 > 任务内置默认。
+   * mode='follow'（默认）表示不做任务级覆盖。
+   */
+  taskSampling: TaskSamplingSettings
 }
 
 const DEFAULTS: AiSettingsValues = {
@@ -39,6 +46,34 @@ const DEFAULTS: AiSettingsValues = {
   writeContextNextChapterOutline: true,
   writeContextPrevChapterMemory: true,
   writeContextTotalMemory: true,
+  taskSampling: {},
+}
+
+/** 单个任务的采样参数配置清洗：非法值一律收敛成 null / 'follow' */
+function normalizeTaskSamplingConfig(raw: any): TaskSamplingConfig {
+  const r = raw && typeof raw === 'object' ? raw : {}
+  const numOrNull = (v: any): number | null => {
+    if (v === null || v === undefined || v === '') return null
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  }
+  return {
+    mode: r.mode === 'custom' ? 'custom' : 'follow',
+    temperature: numOrNull(r.temperature),
+    topP: numOrNull(r.topP),
+    frequencyPenalty: numOrNull(r.frequencyPenalty),
+    presencePenalty: numOrNull(r.presencePenalty),
+  }
+}
+
+/** 清洗 taskSampling 整体（表坏了 / 旧版本没这个字段时安全回落） */
+function normalizeTaskSampling(raw: any): TaskSamplingSettings {
+  const out: TaskSamplingSettings = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const [key, value] of Object.entries(raw as Record<string, any>)) {
+    out[key] = normalizeTaskSamplingConfig(value)
+  }
+  return out
 }
 
 /** 把任意（可能残缺/类型不对）的输入与默认值合并，保证字段齐全且类型正确 */
@@ -58,6 +93,7 @@ function mergeWithDefaults(raw: Partial<AiSettingsValues> | null | undefined): A
     writeContextNextChapterOutline: r.writeContextNextChapterOutline === false ? false : true,
     writeContextPrevChapterMemory: r.writeContextPrevChapterMemory === false ? false : true,
     writeContextTotalMemory: r.writeContextTotalMemory === false ? false : true,
+    taskSampling: normalizeTaskSampling(r.taskSampling),
   }
 }
 
@@ -75,6 +111,10 @@ type AiSettingsState = AiSettingsValues & {
   setWriteContextNextChapterOutline: (value: boolean) => void
   setWriteContextPrevChapterMemory: (value: boolean) => void
   setWriteContextTotalMemory: (value: boolean) => void
+  /** 更新单个任务的采样参数配置（局部合并，保留该任务其他字段 / 其他任务不动） */
+  setTaskSampling: (key: string, patch: Partial<TaskSamplingConfig>) => void
+  /** 清空所有任务的自定义配置（全部恢复跟随模型） */
+  resetTaskSampling: () => void
 }
 
 /** 从当前 store 状态中提取可持久化的设置值 */
@@ -93,6 +133,7 @@ function extractValues(state: AiSettingsValues): AiSettingsValues {
     writeContextNextChapterOutline: state.writeContextNextChapterOutline,
     writeContextPrevChapterMemory: state.writeContextPrevChapterMemory,
     writeContextTotalMemory: state.writeContextTotalMemory,
+    taskSampling: state.taskSampling,
   }
 }
 
@@ -118,6 +159,13 @@ export const useAiSettingsStore = create<AiSettingsState>((set, get) => {
     setWriteContextNextChapterOutline: (value) => { set({ writeContextNextChapterOutline: !!value }); persist() },
     setWriteContextPrevChapterMemory: (value) => { set({ writeContextPrevChapterMemory: !!value }); persist() },
     setWriteContextTotalMemory: (value: boolean) => { set({ writeContextTotalMemory: !!value }); persist() },
+    setTaskSampling: (key, patch) => {
+      const current = get().taskSampling || {}
+      const merged = normalizeTaskSamplingConfig({ ...(current[key] || {}), ...patch })
+      set({ taskSampling: { ...current, [key]: merged } })
+      persist()
+    },
+    resetTaskSampling: () => { set({ taskSampling: {} }); persist() },
   }
 })
 

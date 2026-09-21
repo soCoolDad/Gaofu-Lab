@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { books, chapters, volumes, tokenUsageLogs } from '../db/schema'
 import type { DecodedModel } from './model.ipc'
 import type { TokenLogFilterData, PromptCacheEntry } from './ai.types'
+import { resolveCurrentPrices } from '../utils/billing'
 
 // ─── 常用工具函数 ───────────────────────────────────────────
 
@@ -119,9 +120,11 @@ export function calcCost(
   model: DecodedModel,
   cachedPromptTokens: number = 0,
 ): number {
-  const inputPrice = model.inputPrice ?? 0
-  const outputPrice = model.outputPrice ?? 0
-  const cachedPrice = model.cachedInputPrice ?? inputPrice
+  // 计费价格：优先使用当前时刻命中的计费规则；无规则命中时回退到默认单价
+  const { prices: p } = resolveCurrentPrices(model)
+  const inputPrice = p.inputPrice
+  const outputPrice = p.outputPrice
+  const cachedPrice = p.cachedInputPrice
   const cached = Math.min(Math.max(cachedPromptTokens || 0, 0), promptTokens)
   const uncachedPrompt = promptTokens - cached
   return (uncachedPrompt / 1_000_000) * inputPrice

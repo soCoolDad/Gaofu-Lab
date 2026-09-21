@@ -20,6 +20,8 @@ import {
   DeleteOutlined,
   PlayCircleOutlined,
   MessageOutlined,
+  SubnodeOutlined,
+  NodeExpandOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace.store'
@@ -125,9 +127,11 @@ export default function WorkspaceMenu({ bookTitle, collapsed = false }: Props) {
     { key: 'chapters', icon: <FileTextOutlined />, label: '章节管理', onClick: () => navigate(`/book/${bookId}/chapters`) },
     { key: 'volumes', icon: <FolderOpenOutlined />, label: '分卷管理', onClick: () => navigate(`/book/${bookId}/volumes`) },
     { key: 'outline', icon: <ContainerOutlined />, label: '大纲管理', onClick: () => navigate(`/book/${bookId}/outline`) },
-    { key: 'timeline', icon: <BrainOutlined />, label: '记忆线', onClick: () => navigate(`/book/${bookId}/timeline`) },
+    { key: 'timeline', icon: <NodeExpandOutlined />, label: '记忆线', onClick: () => navigate(`/book/${bookId}/timeline`) },
+    { key: 'memory', icon: <BrainOutlined />, label: '总记忆', onClick: () => navigate(`/book/${bookId}/memory`) },
     { key: 'role-dialogue', icon: <PlayCircleOutlined />, label: '剧情预演', onClick: () => navigate(`/book/${bookId}/role-dialogue`) },
     { key: 'chat-room', icon: <MessageOutlined />, label: '角色聊天室', onClick: () => navigate(`/book/${bookId}/chat-room`) },
+    { key: 'style-fingerprint', icon: <SubnodeOutlined />, label: '文风指纹', onClick: () => navigate(`/book/${bookId}/style-fingerprint`) },
   ]
   const settingItems: MenuProps['items'] = [
     { key: 'characters', icon: <TeamOutlined />, label: '角色管理', onClick: () => navigate(`/book/${bookId}/characters`) },

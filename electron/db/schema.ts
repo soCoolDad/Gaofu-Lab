@@ -104,6 +104,23 @@ export const modelProviders = sqliteTable('model_providers', {
   maxOutputTokens: integer('max_output_tokens'),
   /** 输入上下文 Token 软上限。发送给模型的上下文总 token 估算超过此值时，自动丢弃最早的聊天历史（防超模型上下文窗口）。0/null = 不限制。 */
   maxContextTokens: integer('max_input_tokens'),
+  /** 采样温度（0~2）。null = 使用 provider 默认值。 */
+  temperature: real('temperature'),
+  /** Nucleus sampling 阈值（0~1）。null = 使用 provider 默认值。 */
+  topP: real('top_p'),
+  /** Frequency penalty（-2~2）。null = 使用 provider 默认值。 */
+  frequencyPenalty: real('frequency_penalty'),
+  /** Presence penalty（-2~2）。null = 使用 provider 默认值。 */
+  presencePenalty: real('presence_penalty'),
+  /** 计费规则 JSON 数组字符串，null = 未配置（直接使用默认单价）。
+   *  每条规则 {name, days:number[], startTime:'HH:mm', endTime:'HH:mm', inputPrice, outputPrice, cachedInputPrice}：
+   *  days 1=周一..7=周日；规则内未填的价格字段回退到默认单价，显式 0 视为 0。
+   *  所有计费口径（聊天室 / 剧情预演 / Agent / 技能 / 风格摘要）都通过 electron/utils/billing.ts 的
+   *  resolveCurrentPrices 解析这条列，因此修改规则立即生效于后续所有调用。 */
+  billingRules: text('billing_rules'),
+  /** 「单 System 合并」：部分模型只接受一条 system 消息（多条会报错），开启后在调用前把上下文中所有
+   *  system 消息合并为一条前置消息（内容以双换行拼接，非 system 消息保持原序）。默认 false。 */
+  mergeSystemMessages: integer('merge_system_messages', { mode: 'boolean' }).notNull().default(false),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
@@ -204,6 +221,32 @@ export const aiChatMessages = sqliteTable('ai_chat_messages', {
 export const aiSettings = sqliteTable('ai_settings', {
   id: text('id').primaryKey(),
   data: text('data').notNull().default('{}'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+// ==================== 应用级元信息（KV 持久标记，如「种子数据已写入」） ====================
+// 与业务数据分开：标记不能放在业务表里，否则用户删光业务数据后标记语义就丢了
+// （例：ai_skills 的种子技能被删除后，不能靠「表是否为空」判断是否需要重新种子）。
+export const appMeta = sqliteTable('app_meta', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+// ==================== AI 技能（用户可导入的提示词技能） ====================
+// 注意：与世界观「技能」(bookSettingEntries, type=skills) 完全无关。
+// 这是给 AI Agent / 编辑器调用的「提示词技能」，例如 humanizer-zh（去除 AI 写作痕迹）。
+// 全局通用，不绑定具体作品。技能定义（名称/描述/提示词）与执行机制（skill.ipc）分离，
+// 导入任意技能都不需要改代码。
+export const aiSkills = sqliteTable('ai_skills', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  /** 技能的系统提示词（即技能能力本体） */
+  prompt: text('prompt').notNull().default(''),
+  /** 是否启用（管理 UI 可启停，前端列表默认只展示启用的） */
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -455,6 +498,27 @@ export const chatRoomCharacterModels = sqliteTable('chat_room_character_models',
   characterId: text('character_id').notNull(),
   /** 指定的 model id */
   modelId: text('model_id').notNull().references(() => modelProviders.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
+// ==================== 文风指纹 ====================
+// 一本书可建多个指纹（如「我的文风」「战斗场景文风」），通过 isDefault 标记当前激活的一个。
+// 写正文时把激活指纹的 summary 作为硬约束注入 prompt（替代/补充 books.writingStyle 那一行笼统描述）。
+// 提取一次，本书所有章节写作都受益；写完用 auditor 把正文与指纹 metrics 对照打分。
+export const styleFingerprints = sqliteTable('style_fingerprints', {
+  id: text('id').primaryKey(),
+  bookId: text('book_id').notNull().references(() => books.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  /** 范本样本 JSON：[{ title, content }]。提取后保留，便于重算/展示 */
+  samples: text('samples').notNull().default('[]'),
+  /** 量化特征 JSON：StyleMetrics 序列化（句长/长短句/段落/对话比/标点习惯/AI 套路词命中 等） */
+  metrics: text('metrics').notNull().default('{}'),
+  /** 自然语言约束摘要：注入 prompt 用的硬约束文本（由模型基于 metrics 生成） */
+  summary: text('summary').notNull().default(''),
+  /** 是否为本书当前激活指纹（每本书最多一个 true） */
+  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })

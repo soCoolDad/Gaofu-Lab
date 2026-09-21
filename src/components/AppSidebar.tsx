@@ -7,7 +7,7 @@ import {
   UserOutlined,
   SettingOutlined,
   BlockOutlined,
-  ThunderboltOutlined,
+  FormatPainterOutlined,
   HistoryOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -88,13 +88,19 @@ export default function AppSidebar({ collapsed, onCollapse }: Props) {
     },
   ]
 
-  // 辅助资产：模型管理、工具集、Token 消耗
+  // 辅助资产：模型管理、AI 技能、工具集、Token 消耗
   const assistantItems: MenuProps['items'] = [
     {
       key: 'models',
       icon: <BlockOutlined />,
       label: collapsed ? '' : '模型管理',
       onClick: () => navigate('/models'),
+    },
+    {
+      key: 'skills',
+      icon: <FormatPainterOutlined />,
+      label: collapsed ? '' : 'AI 技能',
+      onClick: () => navigate('/skills'),
     },
     {
       key: 'tools',
@@ -440,6 +446,9 @@ export default function AppSidebar({ collapsed, onCollapse }: Props) {
           </Tooltip>
           <Tooltip title="模型管理" placement="right">
             <Button type="text" icon={<BlockOutlined />} onClick={() => navigate('/models')} style={collapsedButtonStyle(isPathActive('/models'))} />
+          </Tooltip>
+          <Tooltip title="AI 技能" placement="right">
+            <Button type="text" icon={<FormatPainterOutlined />} onClick={() => navigate('/skills')} style={collapsedButtonStyle(isPathActive('/skills'))} />
           </Tooltip>
           <Tooltip title="工具集" placement="right">
             <Button type="text" icon={<ToolOutlined />} onClick={() => navigate('/tools')} style={collapsedButtonStyle(isPathActive('/tools'))} />

@@ -106,6 +106,15 @@ const api = {
       baseUrl?: string
       inputPrice?: number
       outputPrice?: number
+      cachedInputPrice?: number
+      maxOutputTokens?: number
+      maxContextTokens?: number
+      temperature?: number | null
+      topP?: number | null
+      frequencyPenalty?: number | null
+      presencePenalty?: number | null
+      billingRules?: string | null
+      mergeSystemMessages?: boolean
     }) => ipcRenderer.invoke('model:create', data),
     update: (id: string, data: Partial<{
       name: string
@@ -115,7 +124,16 @@ const api = {
       baseUrl?: string
       inputPrice?: number
       outputPrice?: number
+      cachedInputPrice?: number
       enabled: boolean
+      maxOutputTokens?: number
+      maxContextTokens?: number
+      temperature?: number | null
+      topP?: number | null
+      frequencyPenalty?: number | null
+      presencePenalty?: number | null
+      billingRules?: string | null
+      mergeSystemMessages?: boolean
     }>) => ipcRenderer.invoke('model:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('model:delete', id),
     fetchModels: (baseUrl: string, apiKey: string) =>
@@ -134,6 +152,8 @@ const api = {
     clearAll: () => ipcRenderer.invoke('settings:clearAll'),
     getAiSettings: () => ipcRenderer.invoke('settings:getAiSettings') as Promise<any | null>,
     saveAiSettings: (data: any) => ipcRenderer.invoke('settings:saveAiSettings', data),
+    // 「任务默认模型参数」的任务注册表（后端单一数据源：electron/utils/sampling.ts）
+    getSamplingTasks: () => ipcRenderer.invoke('settings:getSamplingTasks'),
   },
 
   // AI 聊天消息持久化
@@ -296,12 +316,39 @@ const api = {
     checkChapterSnapshotConflicts: (data: { bookId: string; chapterId: string }) => ipcRenderer.invoke('ai:checkChapterSnapshotConflicts', data),
     deleteChapterSnapshot: (data: { bookId: string; chapterId: string }) => ipcRenderer.invoke('ai:deleteChapterSnapshot', data),
     deleteBookMemory: (bookId: string) => ipcRenderer.invoke('ai:deleteBookMemory', bookId),
+    updateBookMemory: (data: { bookId: string; data: string }) => ipcRenderer.invoke('ai:updateBookMemory', data),
     onSnapshotGenerated: (callback: (data: { chapterId: string; snapshotId: string; success: boolean }) => void) => {
       const listener = (_: Electron.IpcRendererEvent, data: { chapterId: string; snapshotId: string; success: boolean }) => callback(data)
       ipcRenderer.on('ai:snapshotGenerated', listener)
       return () => ipcRenderer.removeListener('ai:snapshotGenerated', listener)
     },
     reviewEditorContent: (data: { bookId: string; chapterId: string; content: string }) => ipcRenderer.invoke('ai:reviewEditorContent', data),
+  },
+  skill: {
+    list: (opts?: { includeDisabled?: boolean }) => ipcRenderer.invoke('skill:list', opts),
+    create: (data: { name: string; description?: string; prompt: string; enabled?: boolean }) => ipcRenderer.invoke('skill:create', data),
+    update: (data: { id: string; name?: string; description?: string; prompt?: string; enabled?: boolean }) => ipcRenderer.invoke('skill:update', data),
+    delete: (id: string) => ipcRenderer.invoke('skill:delete', id),
+    invoke: (data: { skillId: string; content: string; modelId?: string | null; bookId?: string | null; bookTitle?: string | null }) => ipcRenderer.invoke('skill:invoke', data),
+    importFromUrl: (data: { url: string }) => ipcRenderer.invoke('skill:importFromUrl', data),
+    importZip: (buffer: Uint8Array) => ipcRenderer.invoke('skill:importZip', buffer),
+  },
+  // 文风指纹
+  styleFingerprint: {
+    list: (bookId: string) => ipcRenderer.invoke('styleFingerprint:list', bookId),
+    create: (data: { bookId: string; name: string; description?: string; samples?: Array<{ title?: string; content: string }> }) =>
+      ipcRenderer.invoke('styleFingerprint:create', data),
+    update: (data: { id: string; name?: string; description?: string; samples?: Array<{ title?: string; content: string }> }) =>
+      ipcRenderer.invoke('styleFingerprint:update', data),
+    delete: (id: string) => ipcRenderer.invoke('styleFingerprint:delete', id),
+    setDefault: (id: string) => ipcRenderer.invoke('styleFingerprint:setDefault', id),
+    extract: (data: { id: string; modelId: string }) => ipcRenderer.invoke('styleFingerprint:extract', data),
+    audit: (data: { bookId: string; content: string }) => ipcRenderer.invoke('styleFingerprint:audit', data),
+    onExtractReasoning: (listener: (payload: { id: string; delta: string }) => void) => {
+      const wrap = (_e: any, payload: any) => listener(payload)
+      ipcRenderer.on('styleFingerprint:extractReasoning', wrap)
+      return () => ipcRenderer.removeListener('styleFingerprint:extractReasoning', wrap)
+    },
   },
   clip: {
     getClips: (chapterId: string) => ipcRenderer.invoke('clip:getClips', chapterId),
@@ -323,6 +370,7 @@ const api = {
       outputLanguage?: 'follow_input' | 'chinese' | 'english'
       contextDepth?: 'minimal' | 'balanced' | 'deep'
       injectWritingSettings?: boolean
+      styleFingerprintId?: string | null
       streamTimeout?: number
       appliedPendingWriteTypes?: string[]
       history?: Array<{ role: 'user' | 'assistant'; content: string }>

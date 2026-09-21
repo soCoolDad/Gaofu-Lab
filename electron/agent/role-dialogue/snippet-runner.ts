@@ -20,12 +20,13 @@
 
 import { eq } from 'drizzle-orm'
 import { BrowserWindow } from 'electron'
-import { jsonrepair } from 'jsonrepair'
+import { jsonrepair } from '../../utils/jsonrepair'
 import { v4 as uuidv4 } from 'uuid'
 import { getDb, getSqlite } from '../../db'
 import { bookSettingEntries, bookMemory, roleDialogueRooms, roleDialogueRuns, roleDialogueSnippets, books } from '../../db/schema'
 import { runAgentModel, AgentModelError } from '../model-caller'
 import { resolveModelForCharacter } from './model-resolver'
+import { resolveSamplingParams } from '../../utils/sampling'
 import { buildCharacterContext, isSnippetResultNotice, SNIPPET_EMPTY_RESULT_MARKER, SNIPPET_ERROR_RESULT_PREFIX, SNIPPET_REFUSED_RESULT_PREFIX } from './context-builder'
 import type { SnippetMessage, SnippetUsage } from './types'
 
@@ -225,8 +226,10 @@ export async function generateSnippet(args: GenerateSnippetArgs): Promise<Snippe
         apiKey: model.apiKey,
         modelName: model.modelName,
         messages: llmMessages,
-        temperature: 0.85, // 剧情预演需要一定随机性
+        // 采样参数：任务自定义（设置 → 任务默认模型参数）> 模型行 > 片段扩写内置默认 0.85
+        ...resolveSamplingParams(model, 'roleDialogueSnippet'),
         stream: true,
+        mergeSystemMessages: model.mergeSystemMessages,
       }, {
         onChunk: (delta) => {
           if (!delta) return

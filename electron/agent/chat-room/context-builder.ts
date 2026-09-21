@@ -11,6 +11,7 @@
  */
 
 import type { ChatRoomRole } from './types'
+import { getActiveStyleSummary } from '../style'
 
 /**
  * "结果提示"文案标记（与 chat-runner 中保持一致）。
@@ -49,6 +50,7 @@ export type ChatHistoryItem = {
 export type CharacterStateBrief = { name: string; stateText: string }
 
 export type BuildChatContextArgs = {
+  bookId?: string
   bookTitle: string
   characterName: string
   /** 角色设定文本（来自 bookSettingEntries.description + detail） */
@@ -71,7 +73,7 @@ export type LlmMessage = {
 }
 
 export function buildChatContext(args: BuildChatContextArgs): { messages: LlmMessage[] } {
-  const { bookTitle, characterName, characterSetting, history, selfState, participantNames, selfRelationships, instructionWord } = args
+  const { bookId, bookTitle, characterName, characterSetting, history, selfState, participantNames, selfRelationships, instructionWord } = args
 
   // ── 角色专属 · 当前角色自己的状态（取自定稿记忆，仅本人可见） ──
   // 关键：只注入"说话者自己"的状态，绝不注入其他角色的私密状态（心境/线索/持有物/关系），
@@ -183,10 +185,17 @@ export function buildChatContext(args: BuildChatContextArgs): { messages: LlmMes
   //     4) 当前角色的角色设定表（人设档案，来自 bookSettingEntries，之前漏注入已于本次修复）
   //     5) 当前角色自己的状态
   //     6) 当前角色与在场成员的关系
+  // 文风指纹注入（书籍级，跨角色共享，放在共享前缀内，命中前缀缓存）
+  const styleSummary = bookId ? getActiveStyleSummary(bookId) : null
+  const styleSystem = styleSummary
+    ? `# 文风指纹（必遵，逐条遵守）\n${styleSummary}`
+    : null
+
   const messages: LlmMessage[] = [
     { role: 'system', content: membersSystem },
     { role: 'system', content: characterPrompt },
   ]
+  if (styleSystem) messages.push({ role: 'system', content: styleSystem })
 
   // 「你与在场成员的关系」放在角色专属尾部（角色提示词里已改为"见下方"引用），且排在当前角色状态之后。
   // 角色专属尾部顺序：① 角色设定表（人设档案）→ ② 当前角色自己的状态 → ③ 与在场成员的关系，

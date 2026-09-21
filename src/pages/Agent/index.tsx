@@ -22,14 +22,17 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   ReloadOutlined,
+  ThunderboltOutlined,
+  SubnodeOutlined,
 } from '@ant-design/icons'
 import { useAgentStore } from '@/stores/agent.store'
 import { useModelStore } from '@/stores/model.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
+import { modelFullName, getProviderLabel } from '@/utils/providers'
 import MDXViewer from '@/components/MDXViewer'
 import { SnapshotDetailView } from '@/components/SnapshotViewerModal'
 import type { AgentMessage, PendingWrite } from '@/types/agent'
-import type { ModelProvider } from '@/types/api'
+import type { ModelProvider, StyleFingerprint } from '@/types/api'
 
 const { TextArea } = Input
 
@@ -293,6 +296,17 @@ function PendingWriteCard({
         <Tag color={riskColors[write.riskLevel]} style={{ marginRight: 0, fontSize: 11 }}>
           {write.riskLevel === 'high' ? '高风险' : write.riskLevel === 'medium' ? '中风险' : '低风险'}
         </Tag>
+        {write.type === 'chapter_content' && write.preview?.styleAudit && (
+          <Tooltip title={write.preview.styleAudit.summary}>
+            <Tag
+              color={write.preview.styleAudit.level === 'green' ? 'success' : write.preview.styleAudit.level === 'yellow' ? 'warning' : 'error'}
+              style={{ marginRight: 0, fontSize: 11 }}
+              icon={<ThunderboltOutlined />}
+            >
+              文风吻合 {write.preview.styleAudit.score}
+            </Tag>
+          </Tooltip>
+        )}
         {write.applied && (
           <Tag color="success" style={{ marginRight: 0, fontSize: 11 }} icon={<CheckOutlined />}>已应用</Tag>
         )}
@@ -1486,9 +1500,7 @@ const MessageItem = memo(function MessageItem({
                 >
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'help' }}>
                     <QuestionCircleOutlined style={{ fontSize: 12, color: '#94A3B8' }} />
-                    {message.usage.cost > 0 && (
-                      <span style={{ color: '#EF4444', fontWeight: 500 }}>¥{formatCost(message.usage.cost, 4)}</span>
-                    )}
+                    <span style={{ color: '#EF4444', fontWeight: 500 }}>¥{formatCost(message.usage.cost, 4)}</span>
                   </span>
                 </Tooltip>
 
@@ -1575,6 +1587,10 @@ function ModelSelector({
   onChange: (id: string) => void
 }) {
   const selected = models.find((m) => m.id === value)
+  const enabledModels = models.filter((m) => m.enabled)
+  // 没有任何启用模型（未配置 / 清空数据后）：禁用选择框并显示"暂无模型"，
+  // 避免空占位导致选择框缩成极窄一条。
+  const noModels = enabledModels.length === 0
 
   const providerColor = (provider: string) => {
     const map: Record<string, string> = {
@@ -1595,10 +1611,11 @@ function ModelSelector({
 
   return (
     <Select
-      value={value}
+      value={noModels ? undefined : value}
       onChange={onChange}
-      style={{ flex: 1, minWidth: 0 }}
-      placeholder="选择模型"
+      disabled={noModels}
+      style={{ flex: 1, minWidth: 100 }}
+      placeholder={noModels ? '暂无模型' : '选择模型'}
       className="agent-model-select"
       variant="borderless"
       // 触发器可能很窄（尤其侧栏模式），下拉框固定给个合理的最小宽度，避免"deepseek-v4-fla…"这种截断
@@ -1609,7 +1626,7 @@ function ModelSelector({
         },
       }}
       optionLabelProp="label"
-      options={models.filter((m) => m.enabled).map((m) => ({
+      options={enabledModels.map((m) => ({
         value: m.id,
         label: (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1627,7 +1644,7 @@ function ModelSelector({
             }}>
               {providerInitial(m.provider)}
             </div>
-            <span>{m.name}</span>
+            <span>{modelFullName(m)}</span>
           </div>
         ),
       }))}
@@ -1653,7 +1670,7 @@ function ModelSelector({
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, color: '#111827', fontWeight: 500 }}>{m.name}</div>
-              <div style={{ fontSize: 12, color: '#9CA3AF' }}>{m.provider}</div>
+              <div style={{ fontSize: 12, color: '#9CA3AF' }}>{getProviderLabel(m.provider)}</div>
             </div>
             {isSelected && (
               <CheckCircleOutlined style={{ color: '#10B981', fontSize: 16 }} />
@@ -1684,10 +1701,15 @@ export default function AgentPage({ isPanel = false }: { isPanel?: boolean }) {
     try { localStorage.setItem(AGENT_MODEL_LS_KEY, id || '') } catch {}
   }
   const [applyingId, setApplyingId] = useState<string | null>(null)
+  // 文风指纹（按场景勾选）：本书所有指纹 + 当前选中指纹（默认选激活指纹）
+  const [styleFingerprints, setStyleFingerprints] = useState<StyleFingerprint[]>([])
+  const [selectedFingerprintId, setSelectedFingerprintId] = useState<string>('')
   const [contextMessage, setContextMessage] = useState<AgentMessage | null>(null)
   const [applyConfirm, setApplyConfirm] = useState<{ messageId: string; write: PendingWrite } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAtBottomRef = useRef(true)
+  // 输入法组合状态：中文输入法输英文时，回车用于确认候选词，不应触发发送
+  const isComposingRef = useRef(false)
   // 聊天历史默认只渲染最新 N 条；点击"加载更早"逐批向上展开。
   // 注意：store 里的 messages 必须保持全量（saveMessages 是全量覆盖式持久化，
   // 若只加载部分进 store，自动保存会把更早的历史从数据库抹掉），这里只裁剪**渲染**。
@@ -1702,11 +1724,17 @@ export default function AgentPage({ isPanel = false }: { isPanel?: boolean }) {
   // 校正 modelId：若 localStorage 里存的模型已经不在启用列表中（被删除 / 被禁用），
   // 或者第一次进入根本没存过，就自动选中第一个启用的模型。这样"记忆模型"与"兜底默认"两件事都覆盖。
   useEffect(() => {
-    if (models.length === 0) return
+    // 模型列表为空（如「清空所有数据」后）：清掉残留选择，让选择器回到"选择模型"占位态，
+    // 避免 antd Select 的 value 匹配不到选项时把原始 id 显示出来。
+    if (models.length === 0) {
+      if (modelId) setModelId('')
+      return
+    }
     const stillValid = modelId && models.some((m) => m.id === modelId && m.enabled)
     if (!stillValid) {
       const enabled = models.find((m) => m.enabled)
-      if (enabled) setModelId(enabled.id)
+      // 有启用模型 -> 回退第一个；一个都没有（全部禁用）-> 清空选择，否则同样会显示残留 id
+      setModelId(enabled ? enabled.id : '')
     }
   }, [models, modelId])
 
@@ -1715,6 +1743,20 @@ export default function AgentPage({ isPanel = false }: { isPanel?: boolean }) {
   useEffect(() => {
     setVisibleCount(DEFAULT_VISIBLE_MESSAGES)
     loadMessages(currentBook?.id || null)
+  }, [currentBook?.id])
+
+  // 加载本书文风指纹列表（按场景勾选用）。默认选中激活指纹。
+  useEffect(() => {
+    if (!currentBook?.id || !window.api?.styleFingerprint?.list) {
+      setStyleFingerprints([])
+      setSelectedFingerprintId('')
+      return
+    }
+    window.api.styleFingerprint.list(currentBook.id).then((list) => {
+      setStyleFingerprints(list)
+      const def = list.find((f) => f.isDefault)
+      setSelectedFingerprintId(def?.id || '')
+    })
   }, [currentBook?.id])
 
   // 消息变化时自动保存到数据库
@@ -1790,6 +1832,7 @@ export default function AgentPage({ isPanel = false }: { isPanel?: boolean }) {
       bookId: currentBook?.id || null,
       modelId,
       userInput: text,
+      styleFingerprintId: selectedFingerprintId || undefined,
     })
   }
 
@@ -2085,14 +2128,33 @@ export default function AgentPage({ isPanel = false }: { isPanel?: boolean }) {
             disabled={!selectedModel || isRunning}
             variant="borderless"
             style={{ resize: 'none', padding: 0, boxShadow: 'none' }}
+            onCompositionStart={() => { isComposingRef.current = true }}
+            onCompositionEnd={() => { isComposingRef.current = false }}
             onPressEnter={(e) => {
               if (e.shiftKey) return
+              // 输入法组合态（如中文输入法输英文未确认）时，回车用于确认候选词，不发送
+              if (isComposingRef.current) return
               e.preventDefault()
               handleSend()
             }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#9CA3AF' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#9CA3AF' }}>
+              {styleFingerprints.length > 0 && (
+                <>
+                  <SubnodeOutlined style={{ fontSize: 12, color: '#7C3AED' }} />
+                  <Select
+                    size="small"
+                    variant="borderless"
+                    style={{ width: 140, fontSize: 11 }}
+                    placeholder="默认文风"
+                    value={selectedFingerprintId || undefined}
+                    onChange={setSelectedFingerprintId}
+                    options={styleFingerprints.map((f) => ({ label: f.name, value: f.id }))}
+                  />
+                </>
+              )}
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Popconfirm
                 title="清空全部聊天记录？"

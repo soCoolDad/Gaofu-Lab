@@ -93,6 +93,8 @@ type AgentState = {
     modelId: string
     chapterId?: string | null
     volumeId?: string | null
+    /** 按场景勾选的文风指纹 id（优先于本书激活指纹）；不传则用激活指纹 */
+    styleFingerprintId?: string | null
     /** 定稿流程标记：编辑器「定稿」按钮触发，由 Agent 确定性生成章节记忆 */
     finalize?: boolean
     /** 发给模型的完整消息（可以携带 chapterId 等技术细节） */
@@ -777,6 +779,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       outputLanguage: getAiOutputLanguageSetting(),
       contextDepth: getAiContextDepthSetting(),
       injectWritingSettings: getAiInjectWritingSettingsSetting(),
+      styleFingerprintId: opts.styleFingerprintId,
       streamTimeout: getAiStreamTimeoutSetting(),
       appliedPendingWriteTypes: opts.appliedPendingWriteTypes,
       ...getAiWriteContextSettings(),

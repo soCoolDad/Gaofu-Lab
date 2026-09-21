@@ -21,16 +21,29 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import * as schema from './schema'
 import { runMigrations } from './migrations'
 
-// 在开发模式用固定路径，避免 app.getPath('userData') 的 Chromium 路径问题
-const isDev = process.env.NODE_ENV !== 'production'
-const DB_DIR = isDev
-  ? path.join(process.cwd(), '.ainovel-data')
-  : path.join(app.getPath('userData'), 'data')
-const DB_PATH = path.join(DB_DIR, 'ainovel.db')
+// 用 app.isPackaged 判断生产模式，比 process.env.NODE_ENV 更可靠：
+// electron-builder 打包后不设置 NODE_ENV，但 isPackaged 始终为 true。
+// 开发环境（vite-dev）isPackaged=false。
+//
+// DB_DIR 改为懒加载，有两个原因：
+//   1) app.getPath('userData') 必须在 app 就绪之后才能被调用，
+//      早于 ready 会抛错（"Cannot get 'userData' path before app is ready"）。
+//   2) 避免未来有人提前引用 getDbPath() 时触发同样问题。
+function getDBDir(): string {
+  const isDev = !app.isPackaged
+  if (isDev) {
+    return path.join(process.cwd(), '.ainovel-data')
+  }
+  return path.join(app.getPath('userData'), 'data')
+}
+
+function getDBPath(): string {
+  return path.join(getDBDir(), 'ainovel.db')
+}
 
 /** 获取数据库文件路径（供 IPC 导出等功能使用） */
 export function getDbPath(): string {
-  return DB_PATH
+  return getDBPath()
 }
 
 let db: ReturnType<typeof drizzle> | null = null
@@ -46,6 +59,8 @@ export function getDb() {
     }
     return db
   }
+  const DB_DIR = getDBDir()
+  const DB_PATH = getDBPath()
   if (!existsSync(DB_DIR)) {
     mkdirSync(DB_DIR, { recursive: true })
   }
@@ -165,6 +180,18 @@ function initTables(sqlite: SqliteDatabase) {
       cached_input_price REAL,
       max_output_tokens INTEGER,
       max_input_tokens INTEGER,
+      -- 采样参数（「模型管理 → 编辑模型 → 采样参数」）。
+      -- 必须随表创建：否则全新安装的库缺这些列，添加/编辑模型报 "no column named temperature"
+      -- （历史教训：采样参数列曾由迁移 v8~v11 补齐，但首次启动时表还不存在、迁移被跳过 → 第一次启动就坏）。
+      temperature REAL,
+      top_p REAL,
+      frequency_penalty REAL,
+      presence_penalty REAL,
+      peak_input_price REAL,
+      peak_output_price REAL,
+      peak_days TEXT,
+      billing_rules TEXT,
+      merge_system_messages INTEGER NOT NULL DEFAULT 0,
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -407,6 +434,22 @@ function initTables(sqlite: SqliteDatabase) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE(book_id, character_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_skills (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      prompt TEXT NOT NULL DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_chapter_snapshots_chapter ON chapter_snapshots(book_id, chapter_id);
@@ -719,6 +762,8 @@ export async function importDatabase(srcPath: string): Promise<{ success: boolea
 
     // 2. 关闭当前连接（释放文件句柄，便于覆写）
     closeDb()
+
+    const DB_PATH = getDBPath()
 
     // 3. 清理当前库可能残留的 WAL / SHM 文件
     for (const suffix of ['', '-wal', '-shm']) {

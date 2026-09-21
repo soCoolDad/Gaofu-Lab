@@ -33,6 +33,7 @@ import {
 } from '../../db/schema'
 import { runAgentModel, AgentModelError } from '../model-caller'
 import { resolveChatRoomModel } from './model-resolver'
+import { resolveSamplingParams } from '../../utils/sampling'
 import { buildChatContext, cleanCharacterLine, isChatResultNotice, CHAT_EMPTY_RESULT_MARKER, CHAT_ERROR_RESULT_PREFIX, CHAT_REFUSED_RESULT_PREFIX, type ChatHistoryItem, type CharacterStateBrief } from './context-builder'
 import { getAllCharacterMemoryStates, getCharacterRelationships } from './memory-states'
 import type { ChatRoomMessage, ChatRoomMessageUsage, ChatRoomRole, ChatRoomSpeakingMode, SendTurnInput } from './types'
@@ -299,6 +300,7 @@ async function generateCharacterMessage(args: {
     : `请基于以上你自己的状态与对话，自然接一句话。`
 
   const { messages: llmMessages } = buildChatContext({
+    bookId,
     bookTitle,
     characterName,
     characterSetting,
@@ -343,8 +345,10 @@ async function generateCharacterMessage(args: {
       apiKey: model.apiKey,
       modelName: model.modelName,
       messages: llmMessages,
-      temperature: 0.9,
+      // 采样参数：任务自定义（设置 → 任务默认模型参数）> 模型行 > 聊天室内置默认 0.9
+      ...resolveSamplingParams(model, 'chatRoom'),
       stream: true,
+      mergeSystemMessages: model.mergeSystemMessages,
     }, {
       onChunk: (delta) => {
         if (!delta) return

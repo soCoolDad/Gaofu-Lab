@@ -10,6 +10,7 @@ import { getDb } from '../../db'
 import { books, volumes, chapters, outlines, bookSettingEntries } from '../../db/schema'
 import { defineReadTool, defineWriteTool } from './index'
 import { createPendingWrite } from '../tool-executor'
+import { auditChapterContent } from '../style'
 import { cleanEditorContentFromAi } from '../../ipc/data-block-parser'
 import { settingTypeLabel } from '../settings-labels'
 import type { ToolHandlerResult } from './index'
@@ -422,7 +423,7 @@ const writeChapterContentTool = defineWriteTool(
     mode: { type: 'string', description: '写入模式', enum: ['append', 'replace'] },
   },
   ['chapterId', 'content'],
-  async (args) => {
+  async (args, ctx) => {
     const db = getDb()
     const ch = db.select({ id: chapters.id, title: chapters.title, content: chapters.content }).from(chapters).where(eq(chapters.id, args.chapterId)).get()
     if (!ch) return { error: '章节不存在' }
@@ -433,15 +434,25 @@ const writeChapterContentTool = defineWriteTool(
     // 工具阶段就把"章节标题 / 分段小标题 / 本章完"等残留清洗掉，让"结果确认"弹窗预览与最终落库一致
     const content = cleanEditorContentFromAi(rawContent, ch.title)
     if (!content) return { error: '正文清洗后为空，请检查模型输出' }
+    // 文风吻合度校验：对照本书激活指纹给红黄绿 + 偏离项，塞进预览供"结果确认卡"展示。
+    // 无激活指纹时返回 null，summary/preview 不带文风信息（保持原行为）。
+    const styleAudit = auditChapterContent(ctx.bookId, content)
+    const summaryText = styleAudit
+      ? `${content.length} 字 · 文风吻合 ${styleAudit.score} 分`
+      : `${content.length} 字`
     return {
       pendingWrite: createPendingWrite({
         type: 'chapter_content',
         title: `${mode === 'append' ? '续写' : '重写'}章节《${ch.title}》`,
-        summary: `${content.length} 字`,
+        summary: summaryText,
         target: { chapterId: args.chapterId, entityType: 'chapter' },
         applyMode: mode as 'append' | 'replace',
         data: { content },
-        preview: { title: ch.title, content: content.slice(0, 500) + (content.length > 500 ? '...' : '') },
+        preview: {
+          title: ch.title,
+          content: content.slice(0, 500) + (content.length > 500 ? '...' : ''),
+          styleAudit,
+        },
         riskLevel: 'medium',
       }),
     }

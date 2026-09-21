@@ -403,7 +403,9 @@ import path from 'node:path'
 import { app } from 'electron'
 
 function getOverridesPath(): string {
-  const isDev = process.env.NODE_ENV !== 'production'
+  // 用 !app.isPackaged 判断更可靠；getOverridesPath 被 loadOverrides 延迟调用，
+  // 此时 app 已经 ready，调用 app.getPath('userData') 是安全的
+  const isDev = !app.isPackaged
   const dir = isDev
     ? path.join(process.cwd(), '.ainovel-data')
     : path.join(app.getPath('userData'), 'data')

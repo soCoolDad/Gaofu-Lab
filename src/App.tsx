@@ -19,8 +19,11 @@ import SettingsPage from './pages/Settings'
 import TokenLogsPage from './pages/TokenLogs'
 import ToolsPage from './pages/Tools'
 import AgentPage from './pages/Agent'
+import SkillManagerPage from './pages/SkillManager'
 import RoleDialoguePage from './pages/RoleDialogue'
 import ChatRoomPage from './pages/ChatRoom'
+import StyleFingerprintPage from './pages/StyleFingerprint'
+import BookMemoryPage from './pages/BookMemory'
 import WelcomePage from './pages/Welcome/index'
 import DisclaimerModal from './components/DisclaimerModal'
 import DocModal from './components/DocModal'
@@ -38,6 +41,7 @@ export default function App() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="token-logs" element={<TokenLogsPage />} />
         <Route path="tools" element={<ToolsPage />} />
+        <Route path="skills" element={<SkillManagerPage />} />
         <Route path="agent" element={<AgentPage />} />
       </Route>
       {/* 书籍相关页面 */}
@@ -59,6 +63,8 @@ export default function App() {
         <Route path="timeline" element={<TimelinePage />} />
         <Route path="role-dialogue" element={<RoleDialoguePage />} />
         <Route path="chat-room" element={<ChatRoomPage />} />
+        <Route path="style-fingerprint" element={<StyleFingerprintPage />} />
+        <Route path="memory" element={<BookMemoryPage />} />
       </Route>
     </Routes>
     </>

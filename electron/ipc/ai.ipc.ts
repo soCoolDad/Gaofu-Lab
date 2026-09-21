@@ -7,6 +7,7 @@ import { now, todayStart, rangeStart, buildTokenLogWhere } from './ai.utils'
 import type { TokenLogFilterData, TokenLogFacets } from './ai.types'
 import { loadBookMemory } from '../agent/memory'
 import { serializeBookMemory } from '../agent/memory/serializer'
+import { resolveCurrentPrices } from '../utils/billing'
 
 // ─── IPC 注册 ──────────────────────────────────────────────
 
@@ -66,7 +67,7 @@ export function registerAiIpc() {
     const total = Number(totalRow?.count ?? 0)
 
     // 2) 当前页明细
-    const items = db
+    const rawItems = db
       .select({
         id: tokenUsageLogs.id,
         bookId: tokenUsageLogs.bookId,
@@ -93,6 +94,7 @@ export function registerAiIpc() {
         modelInputPrice: modelProviders.inputPrice,
         modelOutputPrice: modelProviders.outputPrice,
         modelCachedInputPrice: modelProviders.cachedInputPrice,
+        modelBillingRules: modelProviders.billingRules,
       })
       .from(tokenUsageLogs)
       .leftJoin(books, eq(tokenUsageLogs.bookId, books.id))
@@ -104,6 +106,27 @@ export function registerAiIpc() {
       .limit(pageSize)
       .offset(offset)
       .all()
+
+    // 计费规则生效后的价格：按每条日志的 createdAt 回放当时的规则（避免"用今天的价格展示昨天的消耗"）。
+    // 无规则 / 无规则命中 / 模型已删除（modelId 为 null）时回退到模型默认单价。
+    const items = rawItems.map((row) => {
+      const { prices: effective } = resolveCurrentPrices(
+        {
+          inputPrice: row.modelInputPrice,
+          outputPrice: row.modelOutputPrice,
+          cachedInputPrice: row.modelCachedInputPrice,
+          billingRules: row.modelBillingRules ?? null,
+        },
+        row.createdAt ? new Date(row.createdAt) : new Date(),
+      )
+      return {
+        ...row,
+        modelInputPrice: effective.inputPrice,
+        modelOutputPrice: effective.outputPrice,
+        modelCachedInputPrice: effective.cachedInputPrice,
+        modelBillingRules: undefined,
+      }
+    })
 
     // 3) 筛选后的汇总（覆盖全部匹配记录，而非仅当前页）
     const sumRow = db
@@ -171,14 +194,15 @@ export function registerAiIpc() {
       .select({
         modelId: tokenUsageLogs.modelId,
         modelName: modelProviders.name,
+        provider: modelProviders.provider,
       })
       .from(tokenUsageLogs)
       .leftJoin(modelProviders, eq(tokenUsageLogs.modelId, modelProviders.id))
       .where(sql`${tokenUsageLogs.modelId} IS NOT NULL`)
       .groupBy(tokenUsageLogs.modelId)
-      .all() as Array<{ modelId: string; modelName: string | null }>
+      .all() as Array<{ modelId: string; modelName: string | null; provider: string | null }>
     const modelsFacet = modelRows
-      .map((r) => ({ modelId: r.modelId, modelName: r.modelName || '未知模型' }))
+      .map((r) => ({ modelId: r.modelId, modelName: r.modelName || '未知模型', provider: r.provider ?? null }))
       .sort((a, b) => a.modelName.localeCompare(b.modelName, 'zh-CN'))
 
     const actionRows = db
@@ -218,12 +242,42 @@ export function registerAiIpc() {
       inputPrice: modelProviders.inputPrice,
       outputPrice: modelProviders.outputPrice,
       cachedInputPrice: modelProviders.cachedInputPrice,
+      billingRules: modelProviders.billingRules,
     })
       .from(tokenUsageLogs)
       .leftJoin(modelProviders, eq(tokenUsageLogs.modelId, modelProviders.id))
       .where(gte(tokenUsageLogs.createdAt, today))
       .groupBy(tokenUsageLogs.modelId)
       .all()
+
+    // 侧边栏展示：每个模型今日的"聚合单价"取该模型今天最后一条日志时刻的生效价。
+    // 之所以不用固定"当前时刻"或"模型默认价"：一天可能跨高峰/低峰多段，展示"最近一次调用当时的价"
+    // 更贴近用户直觉；而实际的费用汇总仍以 token_usage_logs.cost 为准确值（不受此处影响）。
+    const latestByModel = new Map<string, string>()
+    for (const r of todayRows) {
+      const key = r.modelId || '__none__'
+      const prev = latestByModel.get(key)
+      if (!prev || (r.createdAt || '') > prev) latestByModel.set(key, r.createdAt || '')
+    }
+    const byModelWithPricing = byModel.map((row) => {
+      const at = latestByModel.get(row.modelId || '__none__') || undefined
+      const { prices: effective } = resolveCurrentPrices(
+        {
+          inputPrice: row.inputPrice,
+          outputPrice: row.outputPrice,
+          cachedInputPrice: row.cachedInputPrice,
+          billingRules: row.billingRules ?? null,
+        },
+        at ? new Date(at) : new Date(),
+      )
+      return {
+        ...row,
+        inputPrice: effective.inputPrice,
+        outputPrice: effective.outputPrice,
+        cachedInputPrice: effective.cachedInputPrice,
+        billingRules: undefined,
+      }
+    })
     return {
       todayTokens: todayRows.reduce((s, r) => s + r.totalTokens, 0),
       todayCachedTokens: todayRows.reduce((s, r) => s + (r.cachedPromptTokens || 0), 0),
@@ -233,7 +287,7 @@ export function registerAiIpc() {
       monthCost: monthRows.reduce((s, r) => s + r.cost, 0),
       monthCachedTokens: monthRows.reduce((s, r) => s + (r.cachedPromptTokens || 0), 0),
       monthCalls: monthRows.reduce((s, r) => s + (r.calls || 1), 0),
-      byModel,
+      byModel: byModelWithPricing,
     }
   })
 
@@ -276,6 +330,21 @@ export function registerAiIpc() {
     db.delete(bookMemory).where(eq(bookMemory.bookId, bookId)).run()
     db.delete(bookMemoryVersions).where(eq(bookMemoryVersions.bookId, bookId)).run()
     db.update(chapters).set({ status: 'completed', updatedAt: ts }).where(and(eq(chapters.bookId, bookId), eq(chapters.status, 'finalized'))).run()
+    return { success: true }
+  })
+
+  // 手动更新全书总记忆（用户在总记忆页面编辑 JSON 后保存）
+  ipcMain.handle('ai:updateBookMemory', async (_, data: { bookId: string; data: string }) => {
+    const db = getDb()
+    const row = db.select().from(bookMemory).where(eq(bookMemory.bookId, data.bookId)).get()
+    if (!row) return { success: false, message: '记忆不存在，请先定稿章节生成记忆' }
+    try {
+      JSON.parse(data.data)
+    } catch {
+      return { success: false, message: '数据格式错误，不是合法的 JSON' }
+    }
+    db.update(bookMemory).set({ data: data.data, updatedAt: now() })
+      .where(eq(bookMemory.bookId, data.bookId)).run()
     return { success: true }
   })
 

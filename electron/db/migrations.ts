@@ -114,6 +114,93 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    // 文风指纹：从范本提取量化文风特征，写作时作为硬约束注入，写完做吻合度校验。
+    // 一本书可建多个指纹，isDefault 标记当前激活的一个。
+    version: 7,
+    name: 'style_fingerprints.create',
+    up: (sqlite) => {
+      if (tableExists(sqlite, 'style_fingerprints')) return
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS style_fingerprints (
+          id TEXT PRIMARY KEY,
+          book_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          samples TEXT NOT NULL DEFAULT '[]',
+          metrics TEXT NOT NULL DEFAULT '{}',
+          summary TEXT NOT NULL DEFAULT '',
+          is_default INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_style_fingerprints_book ON style_fingerprints(book_id);
+      `)
+    },
+  },
+  {
+    version: 8,
+    name: 'model_providers.add_sampling_params',
+    up: (sqlite) => {
+      // 无表守卫：全新库时 model_providers 还不存在（initTables 在其后运行），
+      // 缺守卫会在首次启动就抛错，导致本版本及后续迁移（v9~v11）全部中断、永不执行，
+      // 新装的库于是缺采样参数列，添加/编辑模型直接报 "no column named temperature"。
+      if (!tableExists(sqlite, 'model_providers')) return
+      const cols = tableColumns(sqlite, 'model_providers')
+      if (!cols.includes('temperature')) {
+        sqlite.exec('ALTER TABLE model_providers ADD COLUMN temperature REAL')
+      }
+      if (!cols.includes('top_p')) {
+        sqlite.exec('ALTER TABLE model_providers ADD COLUMN top_p REAL')
+      }
+    },
+  },
+  {
+    version: 9,
+    name: 'model_providers.add_penalty_and_peak_pricing',
+    up: (sqlite) => {
+      if (!tableExists(sqlite, 'model_providers')) return
+      const cols = tableColumns(sqlite, 'model_providers')
+      if (!cols.includes('frequency_penalty')) {
+        sqlite.exec('ALTER TABLE model_providers ADD COLUMN frequency_penalty REAL')
+      }
+      if (!cols.includes('presence_penalty')) {
+        sqlite.exec('ALTER TABLE model_providers ADD COLUMN presence_penalty REAL')
+      }
+      if (!cols.includes('peak_input_price')) {
+        sqlite.exec('ALTER TABLE model_providers ADD COLUMN peak_input_price REAL')
+      }
+      if (!cols.includes('peak_output_price')) {
+        sqlite.exec('ALTER TABLE model_providers ADD COLUMN peak_output_price REAL')
+      }
+      if (!cols.includes('peak_days')) {
+        sqlite.exec('ALTER TABLE model_providers ADD COLUMN peak_days TEXT')
+      }
+    },
+  },
+  {
+    version: 10,
+    name: 'model_providers.add_billing_rules',
+    up: (sqlite) => {
+      if (!tableExists(sqlite, 'model_providers')) return
+      const cols = tableColumns(sqlite, 'model_providers')
+      if (!cols.includes('billing_rules')) {
+        sqlite.exec('ALTER TABLE model_providers ADD COLUMN billing_rules TEXT')
+      }
+    },
+  },
+  {
+    version: 11,
+    name: 'model_providers.add_merge_system_messages',
+    up: (sqlite) => {
+      if (!tableExists(sqlite, 'model_providers')) return
+      const cols = tableColumns(sqlite, 'model_providers')
+      if (!cols.includes('merge_system_messages')) {
+        sqlite.exec('ALTER TABLE model_providers ADD COLUMN merge_system_messages INTEGER NOT NULL DEFAULT 0')
+      }
+    },
+  },
 ]
 
 export function runMigrations(sqlite: SqliteDatabase) {

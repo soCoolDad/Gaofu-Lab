@@ -35,6 +35,7 @@ import {
   roleDialogueRuns,
 } from '../../db/schema'
 import type { SnippetMessage } from './types'
+import { getActiveStyleSummary } from '../style'
 
 /**
  * "结果提示"文案标记（与 snippet-runner 中保持一致）。
@@ -261,7 +262,13 @@ export function buildCharacterContext(args: BuildContextArgs): BuiltContext {
   let writingSettingsText = ''
   if (room.injectWritingSettings && book) {
     const parts: string[] = []
-    if (book.writingStyle) parts.push(`文风：${book.writingStyle}`)
+    // 文风指纹优先：有激活指纹摘要时注入量化约束，替代笼统的 writingStyle 一行
+    const styleSummary = getActiveStyleSummary(book.id)
+    if (styleSummary) {
+      parts.push(`文风指纹（必遵）：\n${styleSummary}`)
+    } else if (book.writingStyle) {
+      parts.push(`文风：${book.writingStyle}`)
+    }
     if (book.writingPov) parts.push(`叙事视角：${book.writingPov}`)
     if (book.writingTaboo) parts.push(`禁忌：${book.writingTaboo}`)
     if (book.writingConstraint) parts.push(`写作约束：${book.writingConstraint}`)
@@ -296,6 +303,13 @@ export function buildCharacterContext(args: BuildContextArgs): BuiltContext {
 ${room.situation || '（作者未指定情境）'}
 
 ${chapterContext ? chapterContext + '\n' : ''}# 写作设置参考${writingSettingsText}
+
+# 对话纪律（最高优先级）
+- 词汇隔离：只用你自己的语言体系说话，禁止借用其他角色刚用过的关键词或句式。
+- 禁止复述：你的发言中，不得出现对方上一句发言里的实词原词。
+- 禁止镜像对仗：不许以"对方说 X，你拿 X 反驳"的方式接话。
+- 允许错位：沉默、动作、转移话题、答非所问、故意误解，都是合法回应，且优先于完美接话。
+- 不复述已知：双方都已知道的事，不要在台词里互相说明。
 
 # 输出要求
 - 严格以你扮演的角色的口吻、性格、立场发言。
@@ -411,6 +425,7 @@ ${innerThoughtText}
 - **严禁在正文里讲对方角色为「你」这个视角让观众出戏，比如“夜里，你的眼眸亮如星光的看着我”，应该是“夜里，（她/林宛）的眼眸亮如星光的看着我”
 - 直接输出你要说的话和动作/神态描写，**不要**包含 JSON、Markdown 代码块、字段名等任何结构化标记——你要"演戏"，不是"写报告"。
 - 严禁输出空内容；至少 1 个字。
+- 回应纪律：禁止复述对方刚才发言中的实词，禁止镜像对仗接梗；优先用动作、沉默或转移话题回应。
 - 如果你认为本场景下"沉默 / 跳过"更合理，请写一个简短的神态动作。`,
   })
 

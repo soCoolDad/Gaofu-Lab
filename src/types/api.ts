@@ -276,6 +276,26 @@ export type UpdateRoleDialogueSnippetInput = {
 
 // ==================== 原有类型 ====================
 
+/** 「任务默认模型参数」：单个任务的采样参数配置（mode='follow' 时数值字段被忽略，即"跟随模型"） */
+export interface TaskSamplingConfig {
+  mode: 'follow' | 'custom'
+  temperature?: number | null
+  topP?: number | null
+  frequencyPenalty?: number | null
+  presencePenalty?: number | null
+}
+
+/** 「任务默认模型参数」：按任务 key 索引的自定义配置（与后端 electron/utils/sampling.ts 一致） */
+export type TaskSamplingSettings = Record<string, TaskSamplingConfig>
+
+/** 任务注册表条目（后端 electron/utils/sampling.ts 的 SAMPLING_TASKS，通过 settings:getSamplingTasks 下发） */
+export interface SamplingTaskMeta {
+  key: string
+  label: string
+  description: string
+  defaultTemperature: number
+}
+
 /** Agent（「知卷」）设置的完整结构，与渲染进程 aiSettings.store.ts 中的 AiSettingsValues 保持一致 */
 export interface AiSettingsValues {
   smartContextEnabled: boolean
@@ -291,6 +311,8 @@ export interface AiSettingsValues {
   writeContextNextChapterOutline: boolean
   writeContextPrevChapterMemory: boolean
   writeContextTotalMemory: boolean
+  /** 「设置 → 任务默认模型参数」：每个任务的采样参数覆盖（跟随模型 / 自定义） */
+  taskSampling: TaskSamplingSettings
 }
 
 export interface ElectronAPI {
@@ -383,8 +405,15 @@ export interface ElectronAPI {
       baseUrl?: string
       inputPrice?: number
       outputPrice?: number
+      cachedInputPrice?: number
       maxOutputTokens?: number
       maxContextTokens?: number
+      temperature?: number | null
+      topP?: number | null
+      frequencyPenalty?: number | null
+      presencePenalty?: number | null
+      billingRules?: string | null
+      mergeSystemMessages?: boolean
     }) => Promise<ModelProvider>
     update: (id: string, data: Partial<{
       name: string
@@ -394,9 +423,16 @@ export interface ElectronAPI {
       baseUrl?: string
       inputPrice?: number
       outputPrice?: number
+      cachedInputPrice?: number
       maxOutputTokens?: number
       maxContextTokens?: number
+      temperature?: number | null
+      topP?: number | null
+      frequencyPenalty?: number | null
+      presencePenalty?: number | null
+      billingRules?: string | null
       enabled: boolean
+      mergeSystemMessages?: boolean
     }>) => Promise<ModelProvider>
     delete: (id: string) => Promise<boolean>
     fetchModels: (baseUrl: string, apiKey: string) => Promise<any[]>
@@ -413,6 +449,8 @@ export interface ElectronAPI {
     clearAll: () => Promise<boolean>
     getAiSettings: () => Promise<AiSettingsValues | null>
     saveAiSettings: (data: AiSettingsValues) => Promise<boolean>
+    /** 「任务默认模型参数」的任务注册表（后端 electron/utils/sampling.ts 的 SAMPLING_TASKS） */
+    getSamplingTasks: () => Promise<SamplingTaskMeta[]>
   }
   chatMessage: {
     list: (bookId: string) => Promise<AiChatMessageRecord[]>
@@ -501,6 +539,26 @@ export interface ElectronAPI {
     checkChapterSnapshotConflicts: (data: { bookId: string; chapterId: string }) => Promise<{ hasCurrentSnapshot: boolean; laterChapters: Array<{ id: string; title: string; sortOrder: number }> }>
     deleteChapterSnapshot: (data: { bookId: string; chapterId: string }) => Promise<{ deletedChapterCount: number }>
     deleteBookMemory: (bookId: string) => Promise<{ success: boolean }>
+    updateBookMemory: (data: { bookId: string; data: string }) => Promise<{ success: boolean; message?: string }>
+  }
+  skill: {
+    list: (opts?: { includeDisabled?: boolean }) => Promise<AiSkill[]>
+    create: (data: { name: string; description?: string; prompt: string; enabled?: boolean }) => Promise<{ success: boolean; id?: string; error?: string }>
+    update: (data: { id: string; name?: string; description?: string; prompt?: string; enabled?: boolean }) => Promise<{ success: boolean; error?: string }>
+    delete: (id: string) => Promise<{ success: boolean }>
+    invoke: (data: { skillId: string; content: string; modelId?: string | null; bookId?: string | null; bookTitle?: string | null }) => Promise<{ success: boolean; content?: string; error?: string }>
+    importFromUrl: (data: { url: string }) => Promise<{ success: boolean; drafts?: SkillDraft[]; error?: string }>
+    importZip: (buffer: Uint8Array) => Promise<{ success: boolean; drafts?: SkillDraft[]; error?: string }>
+  }
+  styleFingerprint: {
+    list: (bookId: string) => Promise<StyleFingerprint[]>
+    create: (data: { bookId: string; name: string; description?: string; samples?: StyleFingerprintSample[] }) => Promise<StyleFingerprint | null>
+    update: (data: { id: string; name?: string; description?: string; samples?: StyleFingerprintSample[] }) => Promise<StyleFingerprint | null>
+    delete: (id: string) => Promise<boolean>
+    setDefault: (id: string) => Promise<{ success: boolean; message?: string }>
+    extract: (data: { id: string; modelId: string }) => Promise<{ success: boolean; message?: string; fingerprint?: StyleFingerprint | null }>
+    audit: (data: { bookId: string; content: string }) => Promise<StyleAuditResult | null>
+    onExtractReasoning: (listener: (payload: { id: string; delta: string }) => void) => () => void
   }
   clip: {
     getClips: (chapterId: string) => Promise<any[]>
@@ -523,6 +581,7 @@ export interface ElectronAPI {
     outputLanguage?: 'follow_input' | 'chinese' | 'english'
     contextDepth?: 'minimal' | 'balanced' | 'deep'
     injectWritingSettings?: boolean
+    styleFingerprintId?: string | null
     streamTimeout?: number
     appliedPendingWriteTypes?: string[]
     history?: Array<{ role: 'user' | 'assistant'; content: string }>
@@ -576,6 +635,67 @@ declare global {
   interface Window {
     api: ElectronAPI
   }
+}
+
+// ==================== 文风指纹 ====================
+
+export type StyleFingerprintSample = {
+  title?: string
+  content: string
+}
+
+export type StyleMetrics = {
+  totalChars: number
+  totalSentences: number
+  totalParagraphs: number
+  avgSentenceLength: number
+  medianSentenceLength: number
+  shortSentenceRatio: number
+  longSentenceRatio: number
+  maxSentenceLength: number
+  sentenceLengthStd: number
+  avgParagraphLength: number
+  dialogueRatio: number
+  narrationRatio: number
+  dashFreq: number
+  ellipsisFreq: number
+  semicolonFreq: number
+  commaFreq: number
+  typeTokenRatio: number
+  aiClicheHits: Array<{ category: string; word: string; count: number }>
+  aiClicheDensity: number
+}
+
+export type StyleAuditStatus = 'good' | 'warn' | 'bad'
+
+export type StyleAuditDimension = {
+  key: string
+  label: string
+  fingerprintValue: string
+  contentValue: string
+  deviation: number
+  status: StyleAuditStatus
+  note: string
+}
+
+export type StyleAuditResult = {
+  score: number
+  level: 'green' | 'yellow' | 'red'
+  dimensions: StyleAuditDimension[]
+  summary: string
+}
+
+export type StyleFingerprint = {
+  id: string
+  bookId: string
+  name: string
+  description: string
+  samples: StyleFingerprintSample[]
+  metrics: StyleMetrics
+  summary: string
+  isDefault: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 // ==================== 工具提示词 ====================
@@ -696,6 +816,21 @@ export type ModelProvider = {
   maxOutputTokens: number | null
   /** 输入上下文 Token 软上限，null/0 = 不限制 */
   maxContextTokens: number | null
+  /** 采样温度（0~2），null = provider 默认 */
+  temperature: number | null
+  /** Nucleus sampling 阈值（0~1），null = provider 默认 */
+  topP: number | null
+  /** Frequency penalty（-2~2），null = provider 默认 */
+  frequencyPenalty: number | null
+  /** Presence penalty（-2~2），null = provider 默认 */
+  presencePenalty: number | null
+  /** 计费规则 JSON 数组字符串，null = 未配置（直接使用默认单价）。
+   *  每条规则 {name, days:1..7, startTime:'HH:mm', endTime:'HH:mm', inputPrice, outputPrice, cachedInputPrice}；
+   *  规则内未填的价格字段回退到模型默认值，显式 0 视为 0。所有后端计费都走 electron/utils/billing.ts 的
+   *  resolveCurrentPrices 解析，未命中/未配置时回退默认价。 */
+  billingRules: string | null
+  /** 「单 System 合并」：true 时调用前把上下文中所有 system 消息合并为一条前置消息（部分模型只接受一条 system） */
+  mergeSystemMessages: boolean
   enabled: boolean
   createdAt: string
   updatedAt: string
@@ -990,6 +1125,26 @@ export type AiReviewRequest = {
   modelId?: string | null
 }
 
+/** 用户可导入的 AI 技能（提示词技能，如 humanizer-zh 去 AI 味） */
+export type AiSkill = {
+  id: string
+  name: string
+  description: string
+  prompt: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** GitHub 链接 / Zip 导入解析出的技能草稿（预览确认后才创建） */
+export type SkillDraft = {
+  name: string
+  description: string
+  prompt: string
+  /** 来源标注（原始 URL / zip 内路径），仅用于展示 */
+  source?: string
+}
+
 export type AiStreamChunk = {
   streamId: string
   delta: string
@@ -1139,7 +1294,7 @@ export type TokenUsageLogFilter = {
 /** 筛选下拉的去重维度（作品按书名快照、模型按 id、动作按中文动作字符串） */
 export type TokenLogFacets = {
   books: Array<{ bookTitle: string; deleted: boolean }>
-  models: Array<{ modelId: string; modelName: string }>
+  models: Array<{ modelId: string; modelName: string; provider: string | null }>
   actions: string[]
 }
 

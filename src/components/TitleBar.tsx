@@ -31,6 +31,9 @@ export default function TitleBar({ hasBook, rightCollapsed, onToggleRight }: Pro
       case 'devtools':
         window.api?.app?.devtools()
         break
+      case 'relaunch':
+        window.api?.app?.relaunch()
+        break
       case 'welcome':
         navigate('/')
         break
@@ -53,6 +56,7 @@ export default function TitleBar({ hasBook, rightCollapsed, onToggleRight }: Pro
     { key: 'settings', label: '设置' },
     { type: 'divider' },
     { key: 'devtools', label: '打开开发者工具' },
+    { key: 'relaunch', label: '重启应用' },
     { type: 'divider' },
     { key: 'privacy', label: '隐私政策' },
     { key: 'terms', label: '用户协议' },

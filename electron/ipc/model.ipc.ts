@@ -157,28 +157,50 @@ export function registerModelIpc() {
     cachedInputPrice?: number
     maxOutputTokens?: number
     maxContextTokens?: number
+    temperature?: number | null
+    topP?: number | null
+    frequencyPenalty?: number | null
+    presencePenalty?: number | null
+    billingRules?: string | null
+    mergeSystemMessages?: boolean
   }) => {
-    const db = getDb()
-    const id = uuidv4()
-    const ts = now()
-    db.insert(modelProviders).values({
-      id,
-      name: data.name,
-      provider: data.provider,
-      apiKey: encryptApiKey(data.apiKey),
-      baseUrl: data.baseUrl ?? null,
-      modelName: data.modelName,
-      inputPrice: data.inputPrice ?? null,
-      outputPrice: data.outputPrice ?? null,
-      cachedInputPrice: data.cachedInputPrice ?? null,
-      maxOutputTokens: data.maxOutputTokens ?? null,
-      maxContextTokens: data.maxContextTokens ?? null,
-      enabled: true,
-      createdAt: ts,
-      updatedAt: ts,
-    }).run()
-    const row = db.select().from(modelProviders).where(eq(modelProviders.id, id)).get()
-    return decodeModelApiKey(row)
+    try {
+      const db = getDb()
+      if (!data?.name) throw new Error('name 不能为空')
+      if (!data?.provider) throw new Error('provider 不能为空')
+      if (!data?.modelName) throw new Error('modelId (modelName 字段) 不能为空')
+      const id = uuidv4()
+      const ts = now()
+      db.insert(modelProviders).values({
+        id,
+        name: data.name,
+        provider: data.provider,
+        apiKey: encryptApiKey(data.apiKey ?? ''),
+        baseUrl: data.baseUrl ?? null,
+        modelName: data.modelName,
+        inputPrice: data.inputPrice ?? null,
+        outputPrice: data.outputPrice ?? null,
+        cachedInputPrice: data.cachedInputPrice ?? null,
+        maxOutputTokens: data.maxOutputTokens ?? null,
+        maxContextTokens: data.maxContextTokens ?? null,
+        temperature: data.temperature ?? null,
+        topP: data.topP ?? null,
+        frequencyPenalty: data.frequencyPenalty ?? null,
+        presencePenalty: data.presencePenalty ?? null,
+        billingRules: data.billingRules ?? null,
+        mergeSystemMessages: data.mergeSystemMessages ?? false,
+        enabled: true,
+        createdAt: ts,
+        updatedAt: ts,
+      }).run()
+      const row = db.select().from(modelProviders).where(eq(modelProviders.id, id)).get()
+      if (!row) throw new Error('创建后查询失败，数据未入库')
+      return decodeModelApiKey(row)
+    } catch (err: any) {
+      console.error('[model:create] 失败:', err)
+      // better-sqlite3/drizzle 抛错时 message 可能是英文，原样透出给前端展示，便于定位
+      throw new Error(err?.message || String(err))
+    }
   })
 
   ipcMain.handle('model:update', async (_, id: string, data: Partial<{
@@ -192,16 +214,29 @@ export function registerModelIpc() {
     cachedInputPrice?: number
     maxOutputTokens?: number
     maxContextTokens?: number
+    temperature?: number | null
+    topP?: number | null
+    frequencyPenalty?: number | null
+    presencePenalty?: number | null
+    billingRules?: string | null
     enabled: boolean
+    mergeSystemMessages?: boolean
   }>) => {
-    const db = getDb()
-    const updateData: Record<string, any> = { ...data, updatedAt: now() }
-    if (typeof data.apiKey === 'string') {
-      updateData.apiKey = encryptApiKey(data.apiKey)
+    try {
+      const db = getDb()
+      if (!id) throw new Error('id 不能为空')
+      const updateData: Record<string, any> = { ...data, updatedAt: now() }
+      if (typeof data.apiKey === 'string') {
+        updateData.apiKey = encryptApiKey(data.apiKey)
+      }
+      db.update(modelProviders).set(updateData).where(eq(modelProviders.id, id)).run()
+      const row = db.select().from(modelProviders).where(eq(modelProviders.id, id)).get()
+      if (!row) throw new Error('更新后未找到对应记录')
+      return decodeModelApiKey(row)
+    } catch (err: any) {
+      console.error('[model:update] 失败:', err)
+      throw new Error(err?.message || String(err))
     }
-    db.update(modelProviders).set(updateData).where(eq(modelProviders.id, id)).run()
-    const row = db.select().from(modelProviders).where(eq(modelProviders.id, id)).get()
-    return decodeModelApiKey(row)
   })
 
   ipcMain.handle('model:delete', async (_, id: string) => {

@@ -1,6 +1,6 @@
 import { Card, Typography, Button, Space, Modal, message, Tooltip, Table, Empty, Select, Input, App, Switch, InputNumber, Checkbox } from 'antd'
 import { useEffect, useState } from 'react'
-import type { AiApplyLog } from '@/types/api'
+import type { AiApplyLog, SamplingTaskMeta, TaskSamplingConfig } from '@/types/api'
 import {
   DeleteOutlined,
   BookOutlined,
@@ -24,6 +24,7 @@ import {
   MoneyCollectOutlined,
   PlayCircleOutlined,
   TeamOutlined,
+  SlidersOutlined,
 } from '@ant-design/icons'
 
 import { useModelStore } from '@/stores/model.store'
@@ -94,6 +95,24 @@ const applyModeLabels: Record<string, string> = {
   none: '执行',
 }
 
+/**
+ * 「任务默认模型参数」面板：每个任务「自定义」模式下可编辑的四个采样参数。
+ * （任务清单 key / 名称 / 内置默认温度由后端 electron/utils/sampling.ts 的 SAMPLING_TASKS 下发）
+ */
+const SAMPLING_PARAM_FIELDS: Array<{
+  key: keyof Omit<TaskSamplingConfig, 'mode'>
+  label: string
+  min: number
+  max: number
+  step: number
+  hint: string
+}> = [
+  { key: 'temperature', label: '温度（0~2）', min: 0, max: 2, step: 0.1, hint: '控制生成随机性。0=确定性输出，2=高度发散' },
+  { key: 'topP', label: '核采样（0~1）', min: 0, max: 1, step: 0.05, hint: '候选词累积概率阈值。越高越多样，与温度二选一调节' },
+  { key: 'frequencyPenalty', label: '频率惩罚（-2~2）', min: -2, max: 2, step: 0.1, hint: '按出现次数降低重复词概率' },
+  { key: 'presencePenalty', label: '存在惩罚（-2~2）', min: -2, max: 2, step: 0.1, hint: '话题已出现即降权，与次数无关' },
+]
+
 export default function SettingsPage() {
   const { loadBooks, books } = useWorkspaceStore()
   const { loadModels } = useModelStore()
@@ -121,7 +140,25 @@ export default function SettingsPage() {
   const setWriteContextPrevChapterMemory = useAiSettingsStore((state) => state.setWriteContextPrevChapterMemory)
   const writeContextTotalMemory = useAiSettingsStore((state) => state.writeContextTotalMemory)
   const setWriteContextTotalMemory = useAiSettingsStore((state) => state.setWriteContextTotalMemory)
+  const taskSampling = useAiSettingsStore((state) => state.taskSampling)
+  const setTaskSampling = useAiSettingsStore((state) => state.setTaskSampling)
+  const resetTaskSampling = useAiSettingsStore((state) => state.resetTaskSampling)
   const { modal, message } = App.useApp()
+
+  // 「任务默认模型参数」的任务注册表：由后端下发（单一数据源 electron/utils/sampling.ts），
+  // 新增/改名/改默认温度只需动后端，面板自动跟上。
+  const [samplingTasks, setSamplingTasks] = useState<SamplingTaskMeta[]>([])
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const list = await window.api?.settings?.getSamplingTasks?.()
+        if (!cancelled && Array.isArray(list)) setSamplingTasks(list)
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [])
+  const hasCustomSampling = Object.values(taskSampling || {}).some((c) => c?.mode === 'custom')
 
   // 触发全局文档弹窗（在任意页面均可打开，无需跳转）
   const openDoc = (docKey: string, title: string) =>
@@ -585,6 +622,99 @@ export default function SettingsPage() {
             <Button onClick={() => setApplyLogsOpen(true)}>查看应用日志</Button>
           </div>
         </div>
+      </Card>
+
+      {/* 任务默认模型参数 */}
+      <Card
+        variant="borderless"
+        style={{ borderRadius: 12, marginBottom: 16 }}
+        title={
+          <Space>
+            <SlidersOutlined style={{ color: '#0EA5E9' }} />
+            <span style={{ fontWeight: 600 }}>任务默认模型参数</span>
+          </Space>
+        }
+        extra={
+          hasCustomSampling ? (
+            <Tooltip title="清空所有任务的自定义采样参数，全部恢复为「跟随模型」">
+              <Button size="small" onClick={resetTaskSampling}>
+                全部恢复跟随模型
+              </Button>
+            </Tooltip>
+          ) : null
+        }
+      >
+        <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 12, lineHeight: 1.7 }}>
+          每个任务的采样参数取值优先级：
+          <Text strong style={{ fontSize: 12 }}>自定义</Text>
+          （本面板） → <Text strong style={{ fontSize: 12 }}>模型</Text>
+          （「模型管理 → 编辑模型 → 采样参数」里给该模型配置的值） → <Text strong style={{ fontSize: 12 }}>内置默认</Text>
+          （仅温度有内置默认，见每项任务名右侧）。
+          选择「跟随模型」表示不做任务级覆盖；「自定义」里留空的项也按「跟随模型」处理。
+        </div>
+        {samplingTasks.length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="任务列表加载中…" />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {samplingTasks.map((task) => {
+              const cfg = taskSampling?.[task.key]
+              const isCustom = cfg?.mode === 'custom'
+              return (
+                <div key={task.key} style={{ padding: '12px 16px', background: '#F9FAFB', borderRadius: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 500, color: '#111827' }}>
+                        {task.label}
+                        <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                          内置默认 {task.defaultTemperature}
+                        </Text>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>{task.description}</div>
+                    </div>
+                    <Select
+                      value={isCustom ? 'custom' : 'follow'}
+                      onChange={(v) => setTaskSampling(task.key, { mode: v as 'follow' | 'custom' })}
+                      style={{ width: 140, flexShrink: 0 }}
+                      options={[
+                        { value: 'follow', label: '跟随模型' },
+                        { value: 'custom', label: '自定义' },
+                      ]}
+                    />
+                  </div>
+                  {isCustom && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 12,
+                        marginTop: 12,
+                        paddingTop: 12,
+                        borderTop: '1px dashed #E5E7EB',
+                      }}
+                    >
+                      {SAMPLING_PARAM_FIELDS.map((field) => (
+                        <Tooltip key={field.key} title={field.hint}>
+                          <div>
+                            <Text type="secondary" style={{ fontSize: 11 }}>{field.label}</Text>
+                            <InputNumber
+                              style={{ width: 112, display: 'block', marginTop: 2 }}
+                              min={field.min}
+                              max={field.max}
+                              step={field.step}
+                              placeholder="跟随模型"
+                              value={cfg?.[field.key] ?? null}
+                              onChange={(v) => setTaskSampling(task.key, { [field.key]: v ?? null })}
+                            />
+                          </div>
+                        </Tooltip>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </Card>
 
       {/* 数据管理 */}

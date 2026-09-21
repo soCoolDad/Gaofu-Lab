@@ -3,6 +3,7 @@ import { Button, Card, Checkbox, Col, Dropdown, Popover, Row, Select, Space, Tab
 import { SettingOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { TokenUsageLog, TokenUsageLogFilter, TokenUsageSummary } from '@/types/api'
+import { modelFullName } from '@/utils/providers'
 
 const { Title, Text } = Typography
 
@@ -361,7 +362,7 @@ export default function TokenLogsPage() {
   const [total, setTotal] = useState(0)
   // 下拉维度的去重数据（独立于筛选结果，避免筛选项随当前页一起被过滤掉）
   const [bookFacets, setBookFacets] = useState<Array<{ bookTitle: string; deleted: boolean }>>([])
-  const [modelFacets, setModelFacets] = useState<Array<{ modelId: string; modelName: string }>>([])
+  const [modelFacets, setModelFacets] = useState<Array<{ modelId: string; modelName: string; provider: string | null }>>([])
   const [actionFacets, setActionFacets] = useState<string[]>([])
 
   const columns = useMemo<ColumnsType<TokenUsageLog>>(
@@ -370,7 +371,7 @@ export default function TokenLogsPage() {
   )
 
   const modelOptions = useMemo(
-    () => modelFacets.map((m) => ({ value: m.modelId, label: m.modelName })),
+    () => modelFacets.map((m) => ({ value: m.modelId, label: modelFullName(m) })),
     [modelFacets],
   )
 

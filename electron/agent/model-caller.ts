@@ -11,7 +11,7 @@
  */
 
 import { Worker } from 'node:worker_threads'
-import { jsonrepair } from 'jsonrepair'
+import { jsonrepair } from '../utils/jsonrepair'
 import { eq } from 'drizzle-orm'
 import { getDb } from '../db'
 import { aiSettings } from '../db/schema'
@@ -46,10 +46,28 @@ function isNormalFinishReason(fr: string | null | undefined): boolean {
 
 // ─── Worker 脚本（支持 tools 参数 + tool_calls 流式累积） ─────
 
+/**
+ * 把 utils/jsonrepair 的实现注入 Worker 脚本，使 worker 不再 require 外部 jsonrepair 包
+ * （打包后 asar 里拿不到第三方包，避免 MODULE_NOT_FOUND）。
+ *
+ * 实现方式：jsonrepair.toString() 取编译后函数源码注入。这要求
+ * electron/utils/jsonrepair.ts 的 jsonrepair 必须「自包含」（不引用模块级变量），
+ * 否则 Worker 内会 ReferenceError —— 约束已写在该文件头部注释里。
+ * 注意不能用 JSON.stringify(fn)：函数不可 JSON 序列化，只会得到 undefined。
+ */
+function inlineJsonrepair(): string {
+  return `
+const __jsonrepair_source = ${jsonrepair.toString()};
+function jsonrepair(input) { return __jsonrepair_source(input); }
+`
+}
+
 function getAgentWorkerScript() {
+  // worker 内无法通过 require 拿到项目里的 TS 模块，直接把 jsonrepair 实现字符串化注入。
+  // 这样打包后 asar 不再依赖第三方 jsonrepair，彻底避免 MODULE_NOT_FOUND。
   return `
     const { parentPort } = require('node:worker_threads');
-    const { jsonrepair } = require('jsonrepair');
+    ${inlineJsonrepair()}
 
     function normalizeBaseUrl(baseUrl) {
       const raw = (baseUrl || 'https://api.openai.com/v1').replace(/\\/+$/, '');
@@ -71,8 +89,21 @@ function getAgentWorkerScript() {
       const body = {
         model: payload.modelName,
         messages,
-        temperature: payload.temperature,
       };
+      // ── 采样参数（来自「模型管理 → 编辑模型 → 采样参数」，由主线程 resolveSamplingParams 算好）──
+      // 未配置的项（null/undefined）不写进请求体，让 provider 用自己的默认值，避免"凭空发 0/1"。
+      if (payload.temperature !== undefined && payload.temperature !== null) {
+        body.temperature = payload.temperature;
+      }
+      if (payload.topP !== undefined && payload.topP !== null) {
+        body.top_p = payload.topP;
+      }
+      if (payload.frequencyPenalty !== undefined && payload.frequencyPenalty !== null) {
+        body.frequency_penalty = payload.frequencyPenalty;
+      }
+      if (payload.presencePenalty !== undefined && payload.presencePenalty !== null) {
+        body.presence_penalty = payload.presencePenalty;
+      }
       // 输出 Token 上限：显式限制单次回复最大 token 数，避免长 JSON（如章节正文）被 provider 默认上限截断。
       if (payload.maxOutputTokens && payload.maxOutputTokens > 0) {
         body.max_tokens = payload.maxOutputTokens;
@@ -417,7 +448,14 @@ export type AgentModelPayload = {
     tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>
     name?: string
   }>
+  /** 采样温度。由 resolveSamplingParams 计算：模型行配置优先，未配置用任务默认 */
   temperature: number
+  /** 核采样阈值（OpenAI 兼容 top_p）。null/undefined = 不发送，交 provider 默认 */
+  topP?: number | null
+  /** 频率惩罚（OpenAI 兼容 frequency_penalty）。null/undefined = 不发送，交 provider 默认 */
+  frequencyPenalty?: number | null
+  /** 存在惩罚（OpenAI 兼容 presence_penalty）。null/undefined = 不发送，交 provider 默认 */
+  presencePenalty?: number | null
   stream?: boolean
   /** 原生 function calling 工具定义（OpenAI 格式） */
   tools?: Array<{
@@ -433,6 +471,9 @@ export type AgentModelPayload = {
   streamTimeout?: number
   /** 输出 Token 上限（API max_tokens）。>0 时设置到请求体，防止长 JSON 被截断；否则由后端按默认 16384 处理 */
   maxOutputTokens?: number
+  /** 「单 System 合并」：true 时在发送前把 messages 中所有 system 消息合并为一条前置消息。
+   *  部分模型只接受一条 system（多条会报错），开启后自动合并，内容以双换行拼接，非 system 消息保持原序。 */
+  mergeSystemMessages?: boolean
 }
 
 export type AgentModelResult = {
@@ -472,6 +513,21 @@ export class AgentModelError extends Error {
 
 // ─── 调用 Worker ──────────────────────────────────────────────
 
+/**
+ * 「单 System 合并」：把 messages 中所有 system 消息合并为一条前置消息。
+ * 部分模型只接受一条 system（多条会报错）。合并后内容以双换行拼接，非 system 消息保持原相对顺序。
+ * system 消息上的 tool_calls / tool_call_id 等字段不保留（system 不应携带这些字段）。
+ * system 消息数 ≤ 1 时原样返回（浅拷贝，避免改动调用方数组）。
+ */
+function mergeSystemMessagesIfNeeded<T extends { role: string; content: string }>(messages: T[], enabled?: boolean): T[] {
+  if (!enabled) return messages
+  const systemMessages = messages.filter((m) => m && m.role === 'system')
+  if (systemMessages.length <= 1) return messages
+  const mergedContent = systemMessages.map((m) => m.content).filter((c) => typeof c === 'string' && c.length > 0).join('\n\n')
+  const others = messages.filter((m) => !m || m.role !== 'system')
+  return [{ ...(systemMessages[0] as any), content: mergedContent }, ...others] as T[]
+}
+
 export function runAgentModel(
   payload: AgentModelPayload,
   handlers?: { onChunk?: (delta: string) => void; onReasoning?: (delta: string) => void; signal?: AbortSignal },
@@ -479,9 +535,14 @@ export function runAgentModel(
   return new Promise<AgentModelResult>((resolve, reject) => {
     // 注入 streamTimeout 设置：调用方未显式传时从 ai_settings 读出。
     // 显式传的值（如 agent.run 链路前端透传）作为 override 优先。
-    const effectivePayload: AgentModelPayload = (payload.streamTimeout === undefined || payload.streamTimeout === null)
+    const basePayload: AgentModelPayload = (payload.streamTimeout === undefined || payload.streamTimeout === null)
       ? { ...payload, streamTimeout: readStreamTimeoutFromSettings() ?? 120 }
-      : payload
+      : { ...payload }
+    // 「单 System 合并」：在主线程合并后再 post 给 worker，worker 内 buildBody 原样映射。
+    // 始终生成新对象/新数组，避免改动调用方传入的 payload。
+    const effectivePayload: AgentModelPayload = basePayload.mergeSystemMessages
+      ? { ...basePayload, messages: mergeSystemMessagesIfNeeded(basePayload.messages, true) as typeof basePayload.messages }
+      : basePayload
     const worker = new Worker(getAgentWorkerScript(), { eval: true })
     let settled = false
 

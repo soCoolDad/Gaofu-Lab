@@ -125,6 +125,8 @@ export type PendingWrite = {
     summary?: string
     content?: string
     items?: any[]
+    /** 文风吻合度校验结果（仅 chapter_content，写正文工具阶段算出，供"结果确认卡"展示红黄绿） */
+    styleAudit?: any
   }
   /** 风险等级 */
   riskLevel: 'low' | 'medium' | 'high'
@@ -164,11 +166,19 @@ export type AgentModelConfig = {
   baseUrl: string | null
   apiKey: string
   modelName: string
-  temperature?: number
+  temperature?: number | null
   /** 输出 Token 上限（API max_tokens）。undefined = 后端默认 16384 */
   maxOutputTokens?: number
   /** 输入上下文 Token 软上限（超出则截断最早聊天历史）。undefined/0 = 不限制 */
   maxContextTokens?: number
+  /** 「单 System 合并」：true 时在调用前把所有 system 消息合并为一条前置消息（部分模型只接受一条 system）。 */
+  mergeSystemMessages?: boolean
+  /** 采样参数：来自「模型管理 → 编辑模型 → 采样参数」。
+   *  null/undefined = 未配置 —— temperature 由各任务的默认值兜底，topP / frequencyPenalty / presencePenalty 则不写进请求体。
+   *  统一由 electron/utils/sampling.ts 的 resolveSamplingParams 解析。 */
+  topP?: number | null
+  frequencyPenalty?: number | null
+  presencePenalty?: number | null
 }
 
 /** Agent 运行配置 */
@@ -210,6 +220,8 @@ export type AgentRunConfig = {
   contextDepth?: 'minimal' | 'balanced' | 'deep'
   /** 是否注入作品正文写作设置（写作风格、叙事视角、禁写清单、写作约束等） */
   injectWritingSettings?: boolean
+  /** 按场景勾选的文风指纹 id（优先于本书 isDefault 指纹）；不传则用激活指纹 */
+  styleFingerprintId?: string | null
   /**
    * 流式读取空闲超时（秒）。SSE 连接超过此时间无数据则自动中断。
    * 由前端设置页面配置，默认 120 秒。

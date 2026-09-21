@@ -34,6 +34,8 @@ import {
 } from '../../db/schema'
 import { runAgentModel, AgentModelError } from '../model-caller'
 import { resolveModelForCharacter } from './model-resolver'
+import { resolveSamplingParams } from '../../utils/sampling'
+import { resolveCurrentPrices } from '../../utils/billing'
 import { SNIPPET_ERROR_RESULT_PREFIX, SNIPPET_EMPTY_RESULT_MARKER } from './context-builder'
 import type { SnippetMessage, SnippetUsage } from './types'
 
@@ -198,17 +200,24 @@ export async function generateSummary(args: GenerateSummaryArgs): Promise<any> {
     })
   })()
   // model-resolver 返回的是 baseUrl/apiKey/modelName 扁平结构，需要平展成 runAgentModel 期望的"row"形状
-  // 用 model-resolver 已经返回的 inputPrice/outputPrice/cachedInputPrice 字段
+  // 用 resolveCurrentPrices 拿到当前时刻生效的计费价格：如命中计费规则则用规则价，否则回退默认价
   const providerRow = db.select().from(modelProviders).where(eq(modelProviders.id, modelRow.id)).get()
+  const { prices: effectivePrices } = resolveCurrentPrices(providerRow ?? { inputPrice: modelRow.inputPrice, outputPrice: modelRow.outputPrice, cachedInputPrice: modelRow.cachedInputPrice })
   const model = {
     id: modelRow.id,
     baseUrl: modelRow.baseUrl,
     apiKey: modelRow.apiKey,
     modelName: modelRow.modelName,
-    inputPrice: modelRow.inputPrice,
-    outputPrice: modelRow.outputPrice,
-    cachedInputPrice: modelRow.cachedInputPrice,
+    inputPrice: effectivePrices.inputPrice,
+    outputPrice: effectivePrices.outputPrice,
+    cachedInputPrice: effectivePrices.cachedInputPrice,
     enabled: providerRow?.enabled ?? true,
+    mergeSystemMessages: !!modelRow.mergeSystemMessages,
+    // 采样参数：resolver 已带出的模型行配置值（null = 未配置），由 resolveSamplingParams 兜底任务默认温度
+    temperature: modelRow.temperature ?? null,
+    topP: modelRow.topP ?? null,
+    frequencyPenalty: modelRow.frequencyPenalty ?? null,
+    presencePenalty: modelRow.presencePenalty ?? null,
   }
 
   // 5. 构造 prompt
@@ -296,8 +305,10 @@ ${sourceText}
       apiKey: model.apiKey,
       modelName: model.modelName,
       messages: llmMessages,
-      temperature: 0.7,
+      // 采样参数：任务自定义（设置 → 任务默认模型参数）> 模型行 > 剧情总结内置默认 0.7
+      ...resolveSamplingParams(model, 'roleDialogueSummary'),
       stream: true,
+      mergeSystemMessages: model.mergeSystemMessages,
     }, {
       onChunk: (delta) => {
         if (!delta) return

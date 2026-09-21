@@ -15,11 +15,19 @@ type ModelStore = {
     cachedInputPrice?: number
     maxOutputTokens?: number
     maxContextTokens?: number
+    temperature?: number | null
+    topP?: number | null
+    frequencyPenalty?: number | null
+    presencePenalty?: number | null
+    billingRules?: string | null
+    mergeSystemMessages?: boolean
   }) => Promise<ModelProvider>
   updateModel: (id: string, data: Partial<{
     name: string; provider: string; apiKey: string; modelName: string
     baseUrl?: string; inputPrice?: number; outputPrice?: number; cachedInputPrice?: number; enabled: boolean
-    maxOutputTokens?: number; maxContextTokens?: number
+    maxOutputTokens?: number; maxContextTokens?: number; temperature?: number | null; topP?: number | null
+    frequencyPenalty?: number | null; presencePenalty?: number | null; billingRules?: string | null
+    mergeSystemMessages?: boolean
   }>) => Promise<void>
   deleteModel: (id: string) => Promise<void>
 }

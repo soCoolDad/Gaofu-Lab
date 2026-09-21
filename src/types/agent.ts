@@ -43,6 +43,8 @@ export type PendingWrite = {
     summary?: string
     content?: string
     items?: any[]
+    /** 文风吻合度校验结果（仅 chapter_content） */
+    styleAudit?: any
   }
   riskLevel: 'low' | 'medium' | 'high'
   applied: boolean

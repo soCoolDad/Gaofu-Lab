@@ -64,10 +64,6 @@ export default function TimelinePage() {
   timelineDataRef.current = timelineData
   const [viewingPrevSnapshot, setViewingPrevSnapshot] = useState<any>(null)
   const [snapshotViewerOpen, setSnapshotViewerOpen] = useState(false)
-  // 总记忆查看弹窗
-  const [bookMemoryOpen, setBookMemoryOpen] = useState(false)
-  const [bookMemoryText, setBookMemoryText] = useState('')
-  const [bookMemoryLoading, setBookMemoryLoading] = useState(false)
   // 剧情线列表分页：与章节管理保持一致，pageSize 默认 20
   const [currentPage, setCurrentPage] = useState<number>(1)
   const [pageSize, setPageSize] = useState<number>(20)
@@ -440,69 +436,6 @@ export default function TimelinePage() {
     [clipsByChapter]
   )
 
-  // 打开"查看总记忆"弹窗时按需拉取
-  const handleOpenBookMemory = async () => {
-    if (!bookId) return
-    setBookMemoryOpen(true)
-    if (bookMemoryText) return
-    setBookMemoryLoading(true)
-    try {
-      const res = await window.api?.ai?.getBookMemory?.(bookId)
-      if (!res || res.empty) {
-        setBookMemoryText('暂无总记忆。请先定稿章节，系统会自动生成并聚合记忆。')
-      } else {
-        setBookMemoryText(res.naturalLanguage || '')
-      }
-    } catch (e: any) {
-      console.error('加载总记忆失败：', e)
-      setBookMemoryText(`加载失败：${e?.message || e}`)
-    } finally {
-      setBookMemoryLoading(false)
-    }
-  }
-
-  // 删除全书总记忆：高风险操作。清空总记忆 + 各章记忆线片段与章节记忆，章节回退待定稿。
-  // 提示风险：不可恢复，且删除后所有章节需重新定稿才能再次生成记忆（正文不受影响）。
-  const handleDeleteBookMemory = () => {
-    if (!bookId) return
-    Modal.confirm({
-      title: '删除全书总记忆',
-      width: 540,
-      okText: '确认删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      content: (
-        <div style={{ fontSize: 13, lineHeight: 1.8, color: '#374151' }}>
-          <div style={{ color: '#B45309', fontWeight: 500, marginBottom: 10 }}>
-            此操作不可恢复，请谨慎确认。
-          </div>
-          <div>将清空本书的<strong>全书总记忆</strong>，并连带删除：</div>
-          <ul style={{ margin: '8px 0', paddingLeft: 20 }}>
-            <li>所有章节的<strong>记忆线片段</strong>（角色 / 地点 / 场景等轨迹）</li>
-            <li>所有章节的<strong>章节记忆</strong>（定稿快照）</li>
-          </ul>
-          <div>
-            删除后，本书所有已定稿章节将<strong>回退为「待定稿」</strong>状态，需要重新发起定稿才能再次生成记忆；
-            正文内容不受影响。
-          </div>
-        </div>
-      ),
-      onOk: async () => {
-        try {
-          await (window as any).api?.ai?.deleteBookMemory?.(bookId)
-          message.success('已删除全书总记忆')
-          // 若总记忆弹窗正打开，关闭并清空缓存
-          setBookMemoryOpen(false)
-          setBookMemoryText('')
-          await Promise.all([loadTimeline(), loadChapters(bookId)])
-        } catch (e) {
-          console.error('删除总记忆失败：', e)
-          message.error('删除总记忆失败')
-        }
-      },
-    })
-  }
-
   return (
     <div style={{
       // 用负 margin 抵消 WorkspaceLayout <Content> 的 padding: 20px 24px，
@@ -541,22 +474,6 @@ export default function TimelinePage() {
             {currentBook?.title && <span style={{ marginRight: 8 }}>{currentBook.title}</span>}
             共 {timelineData.length} 章 · {totalClips} 个片段
           </Text>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button
-            danger
-            icon={<DeleteOutlined />}
-            onClick={handleDeleteBookMemory}
-          >
-            删除总记忆
-          </Button>
-          <Button
-            type="primary"
-            icon={<ReadOutlined />}
-            onClick={handleOpenBookMemory}
-          >
-            查看总记忆
-          </Button>
         </div>
       </div>
       </div>
@@ -767,32 +684,6 @@ export default function TimelinePage() {
       />
 
       {/* 总记忆查看弹窗：显示 book_memory.data 序列化出的中文文本，只读；用 Markdown 渲染 */}
-      <Modal
-        title={
-          <Space>
-            <BrainOutlined style={{ color: '#4F46E5' }} />
-            <span>全书总记忆</span>
-          </Space>
-        }
-        open={bookMemoryOpen}
-        onCancel={() => setBookMemoryOpen(false)}
-        footer={
-          <Button onClick={() => setBookMemoryOpen(false)}>关闭</Button>
-        }
-        width={820}
-        centered
-        styles={{ body: { maxHeight: '70vh', overflowY: 'auto', padding: '16px 24px', background: '#FAFBFC' } }}
-      >
-        {bookMemoryLoading ? (
-          <div style={{ textAlign: 'center', padding: 48 }}>
-            <Text type="secondary">加载中...</Text>
-          </div>
-        ) : (
-          <div style={{ fontSize: 13, lineHeight: 1.75, color: '#1F2937' }}>
-            <MDXViewer content={bookMemoryText} style={{ maxWidth: '100%' }} />
-          </div>
-        )}
-      </Modal>
     </div>
   )
 }

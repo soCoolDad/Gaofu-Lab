@@ -45,7 +45,6 @@ import {
   UserAddOutlined,
   EyeOutlined,
   QuestionCircleOutlined,
-  CloseOutlined,
   VideoCameraTwoTone,
   ReadOutlined,
 } from '@ant-design/icons'
@@ -53,7 +52,9 @@ import { useParams } from 'react-router-dom'
 import { useRoleDialogueStore } from '@/stores/roleDialogue.store'
 import { useModelStore } from '@/stores/model.store'
 import { useWorkspaceStore } from '@/stores/workspace.store'
+import { modelFullName } from '@/utils/providers'
 import ResizeHandle from '@/components/ResizeHandle'
+import { AddCharactersModal } from '@/components/AddCharactersModal'
 import type {
   MergedCharacter,
   RoleDialogueRoom,
@@ -61,8 +62,6 @@ import type {
   RoleDialogueSnippet,
   SnippetMessage,
   ChatRoomMessageUsage,
-  CharacterStateV2,
-  MemoryEntityRef,
 } from '@/types/api'
 
 const { Text } = Typography
@@ -217,6 +216,7 @@ export default function RoleDialoguePage() {
     loadSnippets,
     generateAndCreateSnippet,
     regenerateSnippet,
+    speakCharacterSnippet,
     insertAuthorFact,
     appendNarrator,
     deleteSnippet,
@@ -233,6 +233,8 @@ export default function RoleDialoguePage() {
   const [characters, setCharacters] = useState<MergedCharacter[]>([])
   const [charactersLoading, setCharactersLoading] = useState(false)
   const [characterModels, setCharacterModels] = useState<Record<string, string | null>>({})
+  // 角色最后状态文本（与「角色聊天室」同源：bookMemory 定稿记忆里角色的最后状态）
+  const [characterMemoryStates, setCharacterMemoryStates] = useState<Record<string, string>>({})
 
   // 章节列表（用于房间"锚定章节"）
   const [chapters, setChapters] = useState<Array<{ id: string; title: string }>>([])
@@ -394,6 +396,11 @@ export default function RoleDialoguePage() {
         }),
       )
       setCharacterModels(modelMap)
+      // 角色最后状态（与「角色聊天室」同源同格式：bookMemory 定稿记忆）
+      if (data.length) {
+        const states = await window.api.chatRoom.getCharacterMemoryStates(bookId, data.map((c) => c.id))
+        setCharacterMemoryStates(states)
+      }
     } finally {
       setCharactersLoading(false)
     }
@@ -567,16 +574,12 @@ export default function RoleDialoguePage() {
     if (!currentRun) return
     await updateRunCharacters(currentRun.id, runCharacterIds.filter((id) => id !== characterId))
   }
-  // 与「角色聊天室」一致：让该角色单独说一句 —— 剧情预演场景下用 regenerateSnippet 仅重生本轮该角色的发言。
+  // 让该角色单独演一段：有片段 -> 在最后一个片段里追加一条该角色的新发言（不动已有消息）；
+  // 没有片段 -> 新建一个片段存放这条发言。
   const handleSpeakCharacter = async (characterId: string) => {
     if (!currentRun) return
     if (generating) return
-    if (currentSnippets.length === 0) {
-      message.warning('还没有可再生的片段，先用底部「生成」跑一次')
-      return
-    }
-    const lastSnippet = currentSnippets[currentSnippets.length - 1]
-    await regenerateSnippet(lastSnippet.id, [characterId])
+    await speakCharacterSnippet(currentRun.id, characterId)
   }
 
   // 拖拽：实时让出占位（与角色聊天室的 InSceneCharacterCard 拖动一致）
@@ -1058,6 +1061,7 @@ export default function RoleDialoguePage() {
                       onSpeak={() => handleSpeakCharacter(c.id)}
                       onModelChange={(mid) => handleSetCharacterModel(c.id, mid)}
                       snippets={currentSnippets}
+                      lastStateText={characterMemoryStates[c.id] || '（暂无状态记录）'}
                       draggable
                       onDragStart={() => {
                         // 初始化 dragOrder 为当前顺序的快照
@@ -1103,11 +1107,14 @@ export default function RoleDialoguePage() {
         onCancel={() => { setRoomModalOpen(false); setEditingRoom(null) }}
         onSubmit={editingRoom ? handleUpdateRoom : handleCreateRoom}
       />
-      <RunSetupModal
+      <AddCharactersModal
         open={runSetupOpen}
         characters={characters}
         onCancel={() => setRunSetupOpen(false)}
         onSubmit={handleCreateRun}
+        title="开始新 Run — 选择参与角色（可拖动排序）"
+        hint="按顺序依次自动生成："
+        okText="开始 Run"
       />
       <RoomHistoryModal
         open={historyOpen}
@@ -1699,9 +1706,9 @@ function NarratorBubble(props: { content: string }) {
 // ────────────────────────────────────────────────────────
 // 与「角色聊天室」的角色卡片视觉与操作保持一致：
 //   - 22×22 圆形序号（colorFor 颜色，截断的角色名）
-//   - 头部操作：↑↓（剧情预演特性，排序）+ 🗨 让 TA 单独说一句 + ✕ 移除
+//   - 头部操作：↑↓（剧情预演特性，排序）+ 🗨 让 TA 单独演一段 + ✕ 移除
 //   - model 选择器（allowClear，「使用房间默认 / 知卷默认」）
-//   - 折叠区：当前状态（默认折叠）
+//   - 折叠区：角色最后状态（默认折叠，与 ChatRoom 同源同解析）
 //   - 拖拽重排（与 ChatRoom 一致）
 const CARD_COLORS = ['#4F46E5', '#16A34A', '#DB2777', '#D97706', '#0891B2', '#7C3AED', '#DC2626', '#059669']
 function colorForCharacter(id: string): string {
@@ -1720,6 +1727,8 @@ function InSceneCharacterCard(props: {
   onSpeak?: () => void
   onModelChange: (modelId: string | null) => void
   snippets: RoleDialogueSnippet[]
+  // 角色最后状态文本（与「角色聊天室」同源：bookMemory 定稿记忆，逐行「字段：值」格式）
+  lastStateText: string
   // 拖拽：拖动期间由父组件统一管理，card 自身只提供 data 属性 + 状态标记
   draggable?: boolean
   onDragStart?: () => void
@@ -1728,51 +1737,9 @@ function InSceneCharacterCard(props: {
   const {
     character, index, total, modelId, models,
     onRemove, onSpeak, onModelChange, snippets,
-    draggable, onDragStart, isDragging,
+    lastStateText, draggable, onDragStart, isDragging,
   } = props
   const [stateOpen, setStateOpen] = useState<string[]>([])
-
-  // 归一化角色状态：把 currentState / location 兼容字符串/对象两种形态
-  const csObj: CharacterStateV2 | null = (() => {
-    if (character.currentState && typeof character.currentState === 'object') return character.currentState as CharacterStateV2
-    return null
-  })()
-  const locationStr: string = (() => {
-    // 1) 优先从 currentState.location 取（结构化）
-    if (csObj?.location?.name) return csObj.location.name
-    // 2) 顶层 location 是对象
-    if (character.location && typeof character.location === 'object') {
-      const l = character.location as MemoryEntityRef
-      if (l.name) return l.name
-    }
-    // 3) 顶层 location 是字符串
-    if (character.location && typeof character.location === 'string') return character.location
-    return ''
-  })()
-  const injuryText: string = (() => {
-    if (!csObj?.injury) return ''
-    if (!csObj.injury.hurt) return '无'
-    const sev = csObj.injury.severity || ''
-    const parts = csObj.injury.parts && csObj.injury.parts.length > 0
-      ? csObj.injury.parts.join('、')
-      : ''
-    return [sev, parts].filter(Boolean).join(' - ') || '是'
-  })()
-  // 统计"已填的字段数"（用于折叠标题显示）
-  const stateFieldCount = [
-    locationStr,
-    csObj?.survival,
-    csObj?.mood,
-    csObj?.speechStyle,
-    csObj?.injury ? '1' : '',
-    csObj?.holds && csObj.holds.length > 0 ? '1' : '',
-    csObj?.knownSkills && csObj.knownSkills.length > 0 ? '1' : '',
-    csObj?.knows && csObj.knows.length > 0 ? '1' : '',
-    csObj?.relationships && csObj.relationships.length > 0 ? '1' : '',
-    character.status,
-    typeof character.currentState === 'string' ? character.currentState : '',
-  ].filter(Boolean).length
-  const hasAnyState = stateFieldCount > 0
   const expanded = stateOpen.includes('state')
   const cardColor = colorForCharacter(character.id)
 
@@ -1822,9 +1789,9 @@ function InSceneCharacterCard(props: {
           >
             {character.name}
           </span>
-          {/* 与「角色聊天室」一致：「让 TA 单独说一句」—— 剧情预演场景下触发该角色所在 Run 的再生（仅重生本轮这一条发言） */}
+          {/* 「让 TA 单独演一段」-- 在最后一个片段里追加一条该角色的新发言；没有片段则新建片段 */}
           {onSpeak && (
-            <Tooltip title="让 TA 单独说一句">
+            <Tooltip title="让 TA 单独演一段">
               <Button
                 type="text"
                 size="small"
@@ -1851,119 +1818,52 @@ function InSceneCharacterCard(props: {
           placeholder="使用房间默认"
           allowClear
           style={{ width: '100%', marginTop: 6 }}
-          options={models.map((m) => ({ value: m.id, label: m.name }))}
+          options={models.map((m) => ({ value: m.id, label: modelFullName(m) }))}
           onClick={(e) => e.stopPropagation()}
         />
 
-        {/* 角色当前所有状态（卡片内折叠，默认折叠） */}
+        {/* 角色最后状态（与「角色聊天室」同源同解析，卡片内折叠，默认折叠） */}
         <div
           style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', userSelect: 'none' }}
           onClick={() => setStateOpen(expanded ? [] : ['state'])}
         >
           <span style={{ fontSize: 12, color: '#6B7280' }}>
-            {expanded ? '收起角色当前状态' : `查看角色当前状态${hasAnyState ? `（${stateFieldCount} 项）` : '（暂无）'}`}
+            {expanded ? '收起角色最后状态' : '查看角色最后状态'}
           </span>
           <span style={{ fontSize: 10, color: '#9CA3AF' }}>{expanded ? '▲' : '▼'}</span>
         </div>
 
         {expanded && (
           <div style={{ marginTop: 8 }}>
-            {!hasAnyState ? (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: '#6B7280',
-                  lineHeight: 1.6,
-                  background: '#F3F4F6',
-                  padding: '8px 10px',
-                  borderRadius: 8,
-                }}
-              >
-                （暂无状态记录）
-              </div>
-            ) : (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: '#374151',
-                  lineHeight: 1.6,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  background: '#F3F4F6',
-                  padding: '8px 10px',
-                  borderRadius: 8,
-                }}
-              >
-                {locationStr && (
-                  <div>
-                    <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>位置：</strong>
-                    {locationStr}
-                  </div>
-                )}
-                {injuryText && (
-                  <div>
-                    <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>受伤：</strong>
-                    {injuryText}
-                  </div>
-                )}
-                {csObj?.survival && (
-                  <div>
-                    <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>生存：</strong>
-                    {csObj.survival}
-                  </div>
-                )}
-                {csObj?.mood && (
-                  <div>
-                    <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>心境：</strong>
-                    {csObj.mood}
-                  </div>
-                )}
-                {csObj?.speechStyle && (
-                  <div>
-                    <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>说话风格：</strong>
-                    {csObj.speechStyle}
-                  </div>
-                )}
-                {csObj?.holds && csObj.holds.length > 0 && (
-                  <div>
-                    <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>持有：</strong>
-                    {csObj.holds.map((h) => h.name || h.id || '?').join('、')}
-                  </div>
-                )}
-                {csObj?.knownSkills && csObj.knownSkills.length > 0 && (
-                  <div>
-                    <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>技能：</strong>
-                    {csObj.knownSkills.map((s) => s.name || s.id || '?').join('、')}
-                  </div>
-                )}
-                {csObj?.knows && csObj.knows.length > 0 && (
-                  <div>
-                    <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>线索：</strong>
-                    {csObj.knows.join('、')}
-                  </div>
-                )}
-                {csObj?.relationships && csObj.relationships.length > 0 && (
-                  <div>
-                    <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>关系：</strong>
-                    {csObj.relationships.map((r) =>
-                      `${r.targetName || r.targetId || '?'}：${r.type}（${r.value}）`
-                    ).join('；')}
-                  </div>
-                )}
-                {character.status && (
-                  <div>
-                    <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>处境：</strong>
-                    {character.status}
-                  </div>
-                )}
-                {typeof character.currentState === 'string' && character.currentState && (
-                  <div>
-                    <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>备注：</strong>
-                    {character.currentState}
-                  </div>
-                )}
-              </div>
-            )}
+            <div
+              style={{
+                fontSize: 12,
+                color: '#374151',
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                background: '#F3F4F6',
+                padding: '8px 10px',
+                borderRadius: 8,
+              }}
+            >
+              {lastStateText.split('\n').map((line, i) => {
+                const sep = line.indexOf('：')
+                if (sep > 0) {
+                  return (
+                    <div key={i}>
+                      <strong style={{ fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap' }}>
+                        {line.slice(0, sep)}：
+                      </strong>
+                      {line.slice(sep + 1)}
+                    </div>
+                  )
+                }
+                return (
+                  <div key={i} style={{ color: sep === 0 ? '#9CA3AF' : undefined }}>{line}</div>
+                )
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -2021,7 +1921,7 @@ function RoomFormModal(props: {
           <Select allowClear placeholder="不锚定" options={chapters.map((c) => ({ value: c.id, label: c.title }))} />
         </Form.Item>
         <Form.Item name="defaultModelId" label="默认 model（兜底 — 角色级偏好会覆盖这里）">
-          <Select allowClear placeholder="使用知卷默认" options={models.map((m) => ({ value: m.id, label: m.name }))} />
+          <Select allowClear placeholder="使用知卷默认" options={models.map((m) => ({ value: m.id, label: modelFullName(m) }))} />
         </Form.Item>
         <Form.Item name="injectWritingSettings" valuePropName="checked">
           <Checkbox>注入写作设置（POV / 文风 / 禁忌）</Checkbox>
@@ -2031,230 +1931,6 @@ function RoomFormModal(props: {
           <Button type="primary" htmlType="submit">{editing ? '保存' : '创建'}</Button>
         </div>
       </Form>
-    </Modal>
-  )
-}
-
-// ────────────────────────────────────────────────────────
-// 弹窗：Run 开局
-// ────────────────────────────────────────────────────────
-function RunSetupModal(props: {
-  open: boolean
-  characters: MergedCharacter[]
-  onCancel: () => void
-  onSubmit: (characterIds: string[]) => void
-}) {
-  const { open, characters, onCancel, onSubmit } = props
-  const [selected, setSelected] = useState<string[]>([])
-  // 拖动中的角色 id（null = 没在拖）
-  const [dragId, setDragId] = useState<string | null>(null)
-  // 容器 ref：拖动期间用坐标实时重排 selected（让出真位置给用户看）
-  const listContainerRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    if (open) setSelected([])
-  }, [open])
-
-  // 兜底：HTML5 dragend 在某些情况（drop 在浏览器外、用户按 ESC、drop 目标被拦截等）不触发，
-  // 会导致 dragId 永远不为 null、tag 永远显示成"拖动中"样式。
-  // 监听 document.dragend 强制清理，确保 dragId 一定会被重置。
-  useEffect(() => {
-    if (!open) return
-    const onDocDragEnd = () => {
-      setDragId((cur) => (cur ? null : cur))
-    }
-    document.addEventListener('dragend', onDocDragEnd)
-    return () => document.removeEventListener('dragend', onDocDragEnd)
-  }, [open])
-
-  // 用鼠标 X 坐标找最接近的目标 tag（不依赖 e.target，永远准确）：
-  //   - 鼠标 X 在第一个 tag 中心左侧 → before 第一个
-  //   - 鼠标 X 在最后一个 tag 中心右侧 → after 最后一个
-  //   - 否则找中心 X 最接近的 tag，pos 由左右决定
-  const findDropTargetByX = (clientX: number, list: string[]): { id: string; pos: 'before' | 'after' } | null => {
-    if (!listContainerRef.current) return null
-    const tagEls = listContainerRef.current.querySelectorAll<HTMLElement>('[data-runsetup-tag]')
-    if (tagEls.length === 0) return null
-    const metas: Array<{ id: string; centerX: number }> = []
-    tagEls.forEach((el) => {
-      const r = el.getBoundingClientRect()
-      const id = el.getAttribute('data-runsetup-tag')
-      if (!id || !list.includes(id)) return
-      metas.push({ id, centerX: r.left + r.width / 2 })
-    })
-    if (metas.length === 0) return null
-    if (clientX <= metas[0].centerX) return { id: metas[0].id, pos: 'before' }
-    const last = metas[metas.length - 1]
-    if (clientX >= last.centerX) return { id: last.id, pos: 'after' }
-    let best = metas[0]
-    let bestDist = Math.abs(clientX - best.centerX)
-    for (let i = 1; i < metas.length; i++) {
-      const d = Math.abs(clientX - metas[i].centerX)
-      if (d < bestDist) { best = metas[i]; bestDist = d }
-    }
-    return { id: best.id, pos: clientX < best.centerX ? 'before' : 'after' }
-  }
-
-  const toggle = (id: string) => {
-    setSelected((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])
-  }
-  // 拖动期间实时重排：把 source 从 list 里抽出，按 pos 插入到 target 附近
-  // 关键是只有当"目标位置 ≠ 当前位置"时才 setState，避免每帧 setState 引起列表 reflow
-  const reorder = (sourceId: string, targetId: string, pos: 'before' | 'after') => {
-    setSelected((s) => {
-      const sIdx = s.indexOf(sourceId)
-      if (sIdx === -1) return s
-      const tIdx = s.indexOf(targetId)
-      if (tIdx === -1) return s
-      // 抽出 source
-      const next = [...s]
-      next.splice(sIdx, 1)
-      // 重新计算 target 的新下标（splice 后原下标可能平移）
-      const newTIdx = next.indexOf(targetId)
-      if (newTIdx === -1) return s
-      // 算 insertAt
-      let insertAt = pos === 'before' ? newTIdx : newTIdx + 1
-      // 如果 source 原本在 target 之前且要插到 before：splice 后会向后偏移 1，要 -1 修正
-      // 例：原 [A, B, C]，把 A 移到 B 之前 → 抽出后 [B, C]，newTIdx=0，pos=before → insertAt=0 → 结果 [A, B, C] 正确
-      // 例：原 [A, B, C]，把 A 移到 B 之后 → 抽出后 [B, C]，newTIdx=0，pos=after → insertAt=1 → 结果 [B, A, C] 正确
-      // 例：原 [A, B, C]，把 C 移到 A 之前 → 抽出后 [A, B]，newTIdx=0，pos=before → insertAt=0 → 结果 [C, A, B] 正确
-      // 边界：如果 insertAt === sIdx（splice 前的位置），说明没动，直接返回原数组避免无变化 setState
-      if (insertAt === sIdx) return s
-      next.splice(insertAt, 0, sourceId)
-      return next
-    })
-  }
-
-  return (
-    <Modal
-      title="开始新 Run — 选择参与角色（可拖动排序）"
-      open={open}
-      onCancel={onCancel}
-      footer={null}
-      width={680}
-      centered
-    >
-      <div style={{ marginBottom: 12 }}>
-        <Text type="secondary">已选 {selected.length} 位角色，按顺序依次自动生成：</Text>
-      </div>
-      <div
-        ref={listContainerRef}
-        style={{ marginBottom: 16, minHeight: 40, padding: 8, background: '#F9FAFB', borderRadius: 6 }}
-        onDragOver={(e) => {
-          // 容器接收 drop + 拖动期间实时重排（让出真位置）
-          e.preventDefault()
-          if (!dragId) return
-          const t = findDropTargetByX(e.clientX, selected)
-          if (!t || t.id === dragId) return
-          // 实时调 reorder；reorder 内部会判断"位置没变就 return s"，避免每帧 setState
-          reorder(dragId, t.id, t.pos)
-        }}
-        onDrop={(e) => {
-          // drop 时已经实时重排过了（onDragOver 在最后一刻也调了 reorder），
-          // 这里只需 e.preventDefault() 阻止默认行为，dragId 留给 onDragEnd 清理
-          e.preventDefault()
-        }}
-      >
-        {selected.length === 0 ? (
-          <Text type="secondary">请从下方选择</Text>
-        ) : (
-          selected.map((id, idx) => {
-            const c = characters.find((x) => x.id === id)
-            if (!c) return null
-            const isDragging = dragId === id
-            return (
-              <span
-                key={id}
-                style={{
-                  position: 'relative',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  marginBottom: 4,
-                  marginRight: 4,
-                  // 拖动中的 tag 用 opacity 降低可见度（保留位置 + 不依赖 dragend 恢复），
-                  // 配合上面 document.dragend 兜底监听，确保 dragId 一定会被清掉
-                  opacity: isDragging ? 0.35 : 1,
-                  cursor: isDragging ? 'grabbing' : 'grab',
-                }}
-              >
-                <Tag
-                  data-runsetup-tag={id}
-                  color="purple"
-                  draggable
-                  onDragStart={(e) => {
-                    setDragId(id)
-                    try { (e as any).nativeEvent?.dataTransfer?.setData('text/plain', id) } catch { /* 非关键 */ }
-                  }}
-                  onDragEnd={() => {
-                    setDragId(null)
-                  }}
-                  style={{
-                    padding: '4px 4px 4px 10px',
-                    fontSize: 13,
-                    marginBottom: 0,
-                    userSelect: 'none',
-                  }}
-                >
-                  <span style={{ marginRight: 4 }}>{idx + 1}. {c.name}</span>
-                  {/* 删除按钮：带圆形背景 + hover 变红，视觉上明显 */}
-                  <span
-                    role="button"
-                    aria-label="移除该角色"
-                    onClick={(e) => { e.stopPropagation(); toggle(id) }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 18,
-                      height: 18,
-                      borderRadius: '50%',
-                      background: 'rgba(255, 255, 255, 0.22)',
-                      color: '#fff',
-                      cursor: 'pointer',
-                      marginLeft: 2,
-                      transition: 'background 0.15s, color 0.15s',
-                    }}
-                    onMouseEnter={(e) => {
-                      const t = e.currentTarget as HTMLElement
-                      t.style.background = '#fff'
-                      t.style.color = '#DC2626'
-                    }}
-                    onMouseLeave={(e) => {
-                      const t = e.currentTarget as HTMLElement
-                      t.style.background = 'rgba(255, 255, 255, 0.22)'
-                      t.style.color = '#fff'
-                    }}
-                  >
-                    <CloseOutlined style={{ fontSize: 10 }} />
-                  </span>
-                </Tag>
-              </span>
-            )
-          })
-        )}
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {characters.map((c) => {
-          const isSelected = selected.includes(c.id)
-          return (
-            <Button
-              key={c.id}
-              size="small"
-              type={isSelected ? 'primary' : 'default'}
-              onClick={() => toggle(c.id)}
-            >
-              {isSelected ? '✓ ' : ''}{c.name}
-            </Button>
-          )
-        })}
-      </div>
-      <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-        <Button onClick={onCancel}>取消</Button>
-        <Button type="primary" disabled={selected.length === 0} onClick={() => onSubmit(selected)}>
-          开始 Run
-        </Button>
-      </div>
     </Modal>
   )
 }

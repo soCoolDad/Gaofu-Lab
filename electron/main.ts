@@ -9,7 +9,8 @@ app.name = '稿府 Lab'
 app.setName('稿府 Lab')
 
 // 开发模式下禁用 GPU 和沙盒，避免 Chromium 缓存目录权限问题
-if (process.env.NODE_ENV !== 'production') {
+// 用 !app.isPackaged 判断更可靠：electron-builder 打包后不设置 NODE_ENV，但 isPackaged 始终为 true
+if (!app.isPackaged) {
   app.commandLine.appendSwitch('no-sandbox')
   app.commandLine.appendSwitch('disable-gpu')
   app.commandLine.appendSwitch('disable-software-rasterizer')
@@ -79,6 +80,14 @@ function setupApplicationMenu() {
       },
       { type: 'separator' },
       { label: '打开开发者工具', accelerator: 'CommandOrControl+Option+I', click: () => BrowserWindow.getFocusedWindow()?.webContents.toggleDevTools() },
+      { label: '重启应用', click: () => {
+        if (!app.isPackaged) {
+          BrowserWindow.getFocusedWindow()?.webContents.reload()
+        } else {
+          app.relaunch()
+          app.quit()
+        }
+      } },
       { type: 'separator' },
       {
         label: '隐私政策',

@@ -12,6 +12,8 @@ import { registerChatMessageIpc } from './chat-message.ipc'
 import { registerAgentIpc } from './agent.ipc'
 import { registerRoleDialogueIpc } from './role-dialogue.ipc'
 import { registerChatRoomIpc } from './chat-room.ipc'
+import { registerSkillIpc } from './skill.ipc'
+import { registerStyleFingerprintIpc } from './style-fingerprint.ipc'
 import { getDbPath, importDatabase } from '../db/index'
 
 export function registerAllIpc() {
@@ -58,8 +60,13 @@ export function registerAllIpc() {
     return importDatabase(src)
   })
   ipcMain.handle('app:relaunch', () => {
+    if (!app.isPackaged) {
+      // 开发模式：app.relaunch 不传 VITE_DEV_SERVER_URL 会白屏，改用刷新页面
+      BrowserWindow.getFocusedWindow()?.webContents.reload()
+      return true
+    }
     app.relaunch()
-    app.exit(0)
+    app.quit()
     return true
   })
   registerBookIpc()
@@ -73,4 +80,6 @@ export function registerAllIpc() {
   registerAgentIpc()
   registerRoleDialogueIpc()
   registerChatRoomIpc()
+  registerSkillIpc()
+  registerStyleFingerprintIpc()
 }

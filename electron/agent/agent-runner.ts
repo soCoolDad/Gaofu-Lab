@@ -18,10 +18,12 @@ import { serializeChapterMemory } from './memory/serializer'
 import type { AgentRunConfig, AgentRunResult, AgentMessage, ToolCall, ToolResult, PendingWrite, ToolContext } from './types'
 import { listToolDefinitions, getTool, getExcludedContexts } from './tools'
 import { getToolPrompt } from './tools/tool-prompts'
+import { resolveSamplingParams } from '../utils/sampling'
 import { getDb } from '../db'
 import { books, volumes, chapters, outlines, bookSettingEntries } from '../db/schema'
 import { eq, and, asc, desc } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
+import { getWritingStyleSummary } from './style'
 
 /**
  * 意图分析输出的「目标引用」：由 LLM 把用户输入归一成数字序号。
@@ -589,8 +591,10 @@ export async function runAgent(config: AgentRunConfig): Promise<AgentRunResult> 
       apiKey: config.modelConfig.apiKey,
       modelName: config.modelConfig.modelName,
       messages: intentionMessages,
-      temperature: config.modelConfig.temperature || 0.7,
+      // 采样参数：任务自定义（设置 → 任务默认模型参数）> 模型行 > 意图分析内置默认 0.7
+      ...resolveSamplingParams(config.modelConfig, 'agentIntention'),
       stream: true,
+      mergeSystemMessages: config.modelConfig.mergeSystemMessages,
     }
 
     const intentionStartAt = Date.now()
@@ -745,12 +749,20 @@ export async function runAgent(config: AgentRunConfig): Promise<AgentRunResult> 
 
       // 作品写作设定（独立的系统上下文，固定位置）：始终注入，不受 bookInfo 开关与 contextDepth 限制（显式关闭 injectWritingSettings 时除外）。
       // 位置紧跟 #当前作品信息 之后，保证缓存前缀稳定；仅在有值时注入，避免空块扰动前缀。
-      // 整体为硬约束（约束·必遵）：写作风格/叙事视角/单章期待字数/禁写清单/写作约束，模型必须逐条遵守。
+      // 整体为硬约束（约束·必遵）：文风指纹/叙事视角/单章期待字数/禁写清单/写作约束，模型必须逐条遵守。
+      // 文风指纹优先：写作注入时优先用"按场景勾选"的指纹（config.styleFingerprintId），
+      // 其次本书激活指纹（isDefault）；有指纹摘要时替代笼统的 writingStyle 一行——
+      // 指纹摘要是带数字锚点的具体约束（句长/对话比/禁止套路词清单），约束力远强于"轻松幽默"这种空泛词。
       if (book && config.injectWritingSettings !== false && !excludedContextKeys.has('bookRequirements')) {
         const reqLines: string[] = []
         if (book.writingTaboo) reqLines.push('禁写清单:' + book.writingTaboo)
         if (book.writingConstraint) reqLines.push('写作约束:' + book.writingConstraint)
-        if (book.writingStyle) reqLines.push('写作风格:' + book.writingStyle)
+        const styleSummary = getWritingStyleSummary(config.bookId, config.styleFingerprintId)
+        if (styleSummary) {
+          reqLines.push('文风指纹（必遵，逐条遵守）:\n' + styleSummary)
+        } else if (book.writingStyle) {
+          reqLines.push('写作风格:' + book.writingStyle)
+        }
         if (book.writingPov) reqLines.push('叙事视角:' + book.writingPov)
         if (book.writingWordCountTarget) reqLines.push('单章期待字数:' + book.writingWordCountTarget)
         if (reqLines.length > 0) {
@@ -1083,10 +1095,12 @@ export async function runAgent(config: AgentRunConfig): Promise<AgentRunResult> 
         ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
         ...(m.name ? { name: m.name } : {}),
       })),
-      temperature: config.modelConfig.temperature ?? 0.7,
+      // 采样参数：任务自定义（设置 → 任务默认模型参数）> 模型行 > 回复生成内置默认 0.7
+      ...resolveSamplingParams(config.modelConfig, 'agentReply'),
       stream: true,
       streamTimeout: config.streamTimeout,
       maxOutputTokens: effectiveMaxOutput,
+      mergeSystemMessages: config.modelConfig.mergeSystemMessages,
       ...(useNativeFunctionCalling ? { tools: openaiTools, tool_choice: 'auto' as const } : {}),
     }
 

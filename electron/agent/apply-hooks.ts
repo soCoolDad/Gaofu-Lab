@@ -16,12 +16,14 @@ import { books, volumes, chapters, outlines, bookSettingEntries, chapterSnapshot
 import { SETTING_TYPE_LABELS } from './settings-labels'
 import { v4 as uuidv4 } from 'uuid'
 import { runAgentModel } from './model-caller'
+import { resolveSamplingParams } from '../utils/sampling'
 import type { PendingWrite, ToolContext } from './types'
 import type { DecodedModel } from '../ipc/model.ipc'
 import { decodeModelApiKey } from '../ipc/model.ipc'
 import { cleanEditorContentFromAi } from '../ipc/data-block-parser'
 import { loadBookMemory, saveBookMemoryWithVersion } from './memory'
 import { mergeIntoBookMemory } from './memory/merger'
+import { assertBillingRulesConfigured } from '../utils/billing'
 
 /** 应用结果 */
 export type ApplyResult = {
@@ -328,8 +330,11 @@ export async function computeChapterSnapshot(
   const bookSettings = db.select().from(bookSettingEntries).where(eq(bookSettingEntries.bookId, bookId)).all()
 
   // 解析模型
-  const model = decodeModelApiKey(db.select().from(modelProviders).where(eq(modelProviders.id, modelId)).get())
-  if (!model || !model.apiKey || !model.modelName) throw new Error('模型配置不完整')
+  const modelRow = db.select().from(modelProviders).where(eq(modelProviders.id, modelId)).get()
+  const model = decodeModelApiKey(modelRow)
+  if (!modelRow || !model || !model.apiKey || !model.modelName) throw new Error('模型配置不完整')
+  // 强校验：模型未配置计费规则则直接抛错，避免"未预估成本就调用"
+  assertBillingRulesConfigured(modelRow)
 
   // 快照分析师配置（硬编码）
   const snapshotSystemPrompt = [
@@ -355,7 +360,6 @@ export async function computeChapterSnapshot(
     '- 事件(events)的 type 与角色关系(relationships)的 type：必须用【简洁中文短语】（2-6字），例如：对话、战斗、冲突、救援、发现、探索、谈判、背叛、合作、亲密互动、爱恋、敌对、师徒、亲情。若现有词不贴切可自行用中文概括，但【严禁输出英文/拼音/下划线组合】（如不得写 intimate_act、dialogue、home_deception 这类标签，那会无法显示）。',
     '- 只输出 JSON，不要寒暄、不要解释、不要 Markdown 代码块围栏。',
   ].join('\n')
-  const temperature = 0.3
 
   // ── 合并：原本分两步（Step 1 章节切片 + Step 2 角色状态/伏笔提取）现合并为一步。
   //   clips 字段并入 Step 2 的输出 schema 顶层，模型在同一次调用里同时给出记忆分析与出场切片。
@@ -413,8 +417,10 @@ ${JSON.stringify(compactSettings, null, 2)}
       apiKey: model.apiKey,
       modelName: model.modelName,
       messages: messages as any,
-      temperature,
+      // 采样参数：任务自定义（设置 → 任务默认模型参数）> 模型行 > 记忆分析内置默认 0.3（结构化输出，偏确定性）
+      ...resolveSamplingParams(model, 'memorySnapshot'),
       stream: true,
+      mergeSystemMessages: model.mergeSystemMessages,
     }, { onReasoning })
     const durationMs = Date.now() - startAt
     onSubModelCall?.({

@@ -1499,6 +1499,18 @@ export default function EditorPage() {
                 onSave={handleSave}
                 variant={(currentChapter.status === 'finalized' || currentChapter.status === 'locked') ? 'readonly' : 'writing'}
                 placeholder="开始写作……"
+                modelId={(() => {
+                  const models = useModelStore.getState().models
+                  let mid = ''
+                  try {
+                    const saved = localStorage.getItem('agent:selectedModelId') || ''
+                    if (saved && models.some((m) => m.id === saved && m.enabled)) mid = saved
+                  } catch { /* localStorage 不可用时走下方兜底 */ }
+                  if (!mid) mid = models.find((m) => m.enabled)?.id || ''
+                  return mid
+                })()}
+                bookId={bookId || null}
+                bookTitle={currentBook?.title || null}
               />
             </div>
           </Card>

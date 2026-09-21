@@ -210,7 +210,7 @@ export type TokenLogFilterData = {
 /** 用于筛选下拉的去重维度：作品按书名（快照或 books.title）、模型按 id、动作按拆解后的中文动作标签。 */
 export type TokenLogFacets = {
   books: Array<{ bookTitle: string; deleted: boolean }>
-  models: Array<{ modelId: string; modelName: string }>
+  models: Array<{ modelId: string; modelName: string; provider: string | null }>
   actions: string[]
 }
 

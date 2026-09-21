@@ -7,7 +7,7 @@
  *      头部：房间标题 + 房间设置 + 一键清空聊天记录
  *      聊天区：消息气泡（导演右对齐 / 角色左对齐 + 颜色头像），支持真·逐字流式
  *      输入区：输入框内嵌发送按钮
- *   - 右侧：角色列表面板（可拖拽排序、随时增删；"定稿记忆状态"默认折叠）
+ *   - 右侧：角色列表面板（可拖拽排序、随时增删；"角色最后状态"默认折叠）
  */
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
@@ -43,6 +43,8 @@ import {
 } from '@ant-design/icons'
 import { useChatRoomStore } from '@/stores/chatRoom.store'
 import type { ChatRoomMessageUsage, ChatRoomRoom, ChatRoomSender, ModelProvider } from '@/types/api'
+import { modelFullName } from '@/utils/providers'
+import { AddCharactersModal } from '@/components/AddCharactersModal'
 
 const COLORS = ['#4F46E5', '#16A34A', '#DB2777', '#D97706', '#0891B2', '#7C3AED', '#DC2626', '#059669']
 
@@ -235,7 +237,6 @@ export default function ChatRoomPage() {
   })
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [contextModal, setContextModal] = useState<{ open: boolean; title: string; messages: Array<{ role: string; content: string }> | null }>({ open: false, title: '', messages: null })
-  const [selectedCharIds, setSelectedCharIds] = useState<string[]>([])
   // 拖动期间的"虚拟顺序"：拖到哪它就显示在哪，避免每帧调 IPC；
   // null 表示没在拖动，渲染走原始 participants。dragend 时一次性提交给 store。
   const [dragOrder, setDragOrderState] = useState<string[] | null>(null)
@@ -521,13 +522,12 @@ export default function ChatRoomPage() {
     reorderParticipants(currentRoomId, finalOrder)
   }
 
-  // ─── 角色：添加 ───
-  const handleAddParticipants = async () => {
+  // ─── 角色：添加（复用剧情预演的「添加角色」弹窗，支持拖拽排序；提交的顺序即加入顺序）───
+  const handleAddParticipants = async (characterIds: string[]) => {
     if (!currentRoomId) return
-    for (const cid of selectedCharIds) {
+    for (const cid of characterIds) {
       await addParticipant(currentRoomId, cid)
     }
-    setSelectedCharIds([])
     setAddModalOpen(false)
   }
 
@@ -792,7 +792,7 @@ export default function ChatRoomPage() {
                     placeholder="使用房间默认"
                     allowClear
                     style={{ width: '100%', marginTop: 6 }}
-                    options={models.map((m) => ({ value: m.id, label: m.modelName }))}
+                    options={models.map((m) => ({ value: m.id, label: modelFullName(m) }))}
                     onClick={(e) => e.stopPropagation()}
                   />
 
@@ -801,7 +801,7 @@ export default function ChatRoomPage() {
                     onClick={() => setExpandedChars((s) => ({ ...s, [p.characterId]: !expanded }))}
                   >
                     <span style={{ fontSize: 12, color: '#6B7280' }}>
-                      {expanded ? '收起定稿记忆状态' : '查看定稿记忆状态'}
+                      {expanded ? '收起角色最后状态' : '查看角色最后状态'}
                     </span>
                     <span style={{ fontSize: 10, color: '#9CA3AF' }}>{expanded ? '▲' : '▼'}</span>
                   </div>
@@ -1493,7 +1493,7 @@ export default function ChatRoomPage() {
               placeholder="跟随知卷默认"
               value={roomForm.defaultModelId ?? undefined}
               onChange={(v) => setRoomForm((s) => ({ ...s, defaultModelId: v ?? null }))}
-              options={models.map((m) => ({ value: m.id, label: `${m.modelName}` }))}
+              options={models.map((m) => ({ value: m.id, label: modelFullName(m) }))}
             />
           </div>
           <div>
@@ -1541,28 +1541,17 @@ export default function ChatRoomPage() {
         </div>
       </Modal>
 
-      {/* ─── 添加角色弹窗 ─── */}
-      <Modal
-        title="添加在场角色"
+      {/* ─── 添加角色弹窗（复用剧情预演的选择器：已选 Tag 可拖拽排序、可单独移除）─── */}
+      <AddCharactersModal
         open={addModalOpen}
+        characters={availableCharacters}
         onCancel={() => setAddModalOpen(false)}
-        onOk={handleAddParticipants}
+        onSubmit={handleAddParticipants}
+        title="添加在场角色（可拖动排序，按顺序加入）"
+        hint="按加入顺序排在在场角色列表："
         okText="添加"
-        cancelText="取消"
-        okButtonProps={{ disabled: selectedCharIds.length === 0 }}
-      >
-        <Select
-          style={{ width: '100%' }}
-          mode="multiple"
-          placeholder="选择本书角色（可多选）"
-          value={selectedCharIds}
-          onChange={setSelectedCharIds}
-          options={availableCharacters.map((c) => ({ value: c.id, label: c.name }))}
-        />
-        {availableCharacters.length === 0 && (
-          <div style={{ marginTop: 8, color: '#9CA3AF', fontSize: 12 }}>本书暂无可选角色，请先到"角色管理"添加。</div>
-        )}
-      </Modal>
+        emptyOptionsText="本书暂无可选角色，请先到「角色管理」添加。"
+      />
 
       {/* ─── 查看调用模型上下文弹窗 ─── */}
       <Modal

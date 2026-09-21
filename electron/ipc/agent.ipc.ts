@@ -24,6 +24,7 @@ import { eq } from 'drizzle-orm'
 import { getDb, getSqlite } from '../db'
 import { books, chapters, modelProviders, applyLogs } from '../db/schema'
 import { decodeModelApiKey } from './model.ipc'
+import { resolveCurrentPrices, assertBillingRulesConfigured } from '../utils/billing'
 import { v4 as uuidv4 } from 'uuid'
 
 // 注册工具（副作用导入）
@@ -101,6 +102,7 @@ export function registerAgentIpc() {
     outputLanguage?: 'follow_input' | 'chinese' | 'english'
     contextDepth?: 'minimal' | 'balanced' | 'deep'
     injectWritingSettings?: boolean
+    styleFingerprintId?: string | null
     streamTimeout?: number
     appliedPendingWriteTypes?: string[]
     history?: Array<{ role: 'user' | 'assistant'; content: string }>
@@ -125,6 +127,14 @@ export function registerAgentIpc() {
     const model = decodeModelApiKey(modelRow)
     if (!model.apiKey || !model.modelName) {
       win?.webContents.send('agent:error', { streamId, message: '模型 API Key 或模型名称未配置' })
+      return { streamId }
+    }
+
+    // 强校验：模型未配置计费规则则直接抛错，避免"未预估成本就调用"
+    try {
+      assertBillingRulesConfigured(modelRow)
+    } catch (err: any) {
+      win?.webContents.send('agent:error', { streamId, message: err?.message || String(err) })
       return { streamId }
     }
 
@@ -160,8 +170,15 @@ export function registerAgentIpc() {
             baseUrl: model.baseUrl,
             apiKey: model.apiKey,
             modelName: model.modelName,
+            // 采样参数（模型管理页「编辑模型 → 采样参数」）：模型行配置优先，
+            // 未配置的项为 null，由 agent-runner 用任务默认温度兜底 / 不写进请求体
+            temperature: model.temperature ?? null,
+            topP: model.topP ?? null,
+            frequencyPenalty: model.frequencyPenalty ?? null,
+            presencePenalty: model.presencePenalty ?? null,
             maxOutputTokens: model.maxOutputTokens ?? undefined,
             maxContextTokens: model.maxContextTokens ?? undefined,
+            mergeSystemMessages: !!model.mergeSystemMessages,
           },
           chapterId: data.chapterId,
           volumeId: data.volumeId,
@@ -173,6 +190,7 @@ export function registerAgentIpc() {
           outputLanguage: data.outputLanguage,
           contextDepth: data.contextDepth,
           injectWritingSettings: data.injectWritingSettings,
+          styleFingerprintId: data.styleFingerprintId,
           streamTimeout: data.streamTimeout,
           appliedPendingWriteTypes: data.appliedPendingWriteTypes,
           history: data.history,
@@ -213,10 +231,12 @@ export function registerAgentIpc() {
         } | null = null
         try {
           const modelForCost = db.select().from(modelProviders).where(eq(modelProviders.id, data.modelId)).get()
-          const inputPrice = modelForCost?.inputPrice || 0
-          const outputPrice = modelForCost?.outputPrice || 0
-          // 缓存命中价未填写时，默认使用输入价格（与模型设置页提示"留空则使用输入价格"一致）
-          const cachedPrice = modelForCost?.cachedInputPrice ?? inputPrice
+          // 计费价格：优先使用当前时刻命中的计费规则；无规则命中时回退到模型默认单价。
+          // 规则里未填的字段（如只覆盖输入价但没填缓存价）会继续用默认值。
+          const { prices: effectivePrices } = resolveCurrentPrices(modelForCost ?? {})
+          const inputPrice = effectivePrices.inputPrice
+          const outputPrice = effectivePrices.outputPrice
+          const cachedPrice = effectivePrices.cachedInputPrice
           const cachedTokens = result.usage.cachedPromptTokens || 0
           const missTokens = result.usage.promptTokens - cachedTokens
           const missCost = missTokens * inputPrice / 1_000_000

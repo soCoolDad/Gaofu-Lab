@@ -101,6 +101,8 @@ type RoleDialogueState = {
   loadSnippets: (runId: string) => Promise<void>
   generateAndCreateSnippet: (runId: string, characterIds: string[], authorFact?: string | null) => Promise<RoleDialogueSnippet | null>
   regenerateSnippet: (id: string, characterIds: string[]) => Promise<void>
+  /** 让单个角色单独演一段：有片段则追加一条新发言到最后一个片段；没有片段则新建片段 */
+  speakCharacterSnippet: (runId: string, characterId: string) => Promise<void>
   insertAuthorFact: (id: string, fact: string) => Promise<void>
   appendNarrator: (runId: string, text: string) => Promise<RoleDialogueSnippet | null>
   deleteSnippet: (id: string) => Promise<void>
@@ -399,6 +401,118 @@ export const useRoleDialogueStore = create<RoleDialogueState>((set, get) => ({
       set((s) => ({ snippetsByRun: { ...s.snippetsByRun, [runId]: snippets } }))
     } finally {
       set({ generating: false, generatingRunId: null })
+      window.dispatchEvent(new Event('token-usage-updated'))
+    }
+  },
+
+  // 让单个角色单独演一段：
+  // - 最后一条明确是普通角色片段 -> 生成一条新发言**追加**到该片段的 messages（不动已有消息，不进 versions）
+  // - 没有片段、或最后一条是总结/旁白片段 -> 新建一个片段存放这条发言
+  // 生成上下文由后端 generateSnippet 统一构建（包含最后片段内的既有发言，新发言自然衔接）
+  speakCharacterSnippet: async (runId, characterId) => {
+    if (get().generating) return
+    const existing = get().snippetsByRun[runId] || []
+    const last = existing.length > 0 ? existing[existing.length - 1] : null
+    // 追加目标：必须明确是"普通角色片段"——总结片段（结构不同）与旁白片段（纯旁白）都不往里追加
+    const isCharacterSnippet = (s: RoleDialogueSnippet) =>
+      s.kind === 'snippet' && !(s.characterIds.length === 1 && s.characterIds[0] === '__narrator__')
+    const appendTo = last && isCharacterSnippet(last) ? last : null
+    // 流式临时卡渲染在列表最底部；order 取 last.order + 1，避免与现有片段卡匹配（不给旧卡标 generating）
+    const streamOrder = last ? last.order + 1 : 1
+
+    set({
+      generating: true,
+      generatingRunId: runId,
+      streamingSnippet: { runId, order: streamOrder, messages: [], authorFactUpdate: null },
+    })
+
+    // 单角色流式累积（与 generateAndCreateSnippet 同思路，简化为单 accumulator）
+    const accum = {
+      characterId,
+      characterName: characterId,
+      publicContent: '',
+      reasoning: '',
+      isFinal: false,
+    }
+    const flushBatched = createStreamingBatcher<{}>(() => {
+      set((s) => {
+        if (!s.streamingSnippet || s.streamingSnippet.runId !== runId) return s
+        return {
+          streamingSnippet: {
+            ...s.streamingSnippet,
+            messages: [{
+              characterId: accum.characterId,
+              characterName: accum.characterName,
+              publicContent: accum.publicContent,
+              innerThought: '',
+              reasoning: accum.reasoning,
+              modelId: '',
+              __partial: !accum.isFinal,
+            }],
+          },
+        }
+      })
+    })
+
+    const offChunk = window.api.roleDialogue.onSnippetChunk((payload) => {
+      if (payload.runId !== runId) return
+      if (payload.message.characterId !== characterId) return
+      accum.characterName = payload.message.characterName || accum.characterName
+      accum.publicContent = payload.message.publicContent || ''
+      accum.reasoning = payload.message.reasoning || accum.reasoning
+      accum.isFinal = true
+      flushBatched({})
+      // 单个角色模型调用完毕即通知主菜单刷新今日 Token（后端此时已 writeTokenLog 落库）
+      window.dispatchEvent(new Event('token-usage-updated'))
+    })
+    const offDelta = window.api.roleDialogue.onSnippetDelta((payload) => {
+      if (payload.runId !== runId) return
+      if (payload.characterId !== characterId) return
+      if (payload.characterName) accum.characterName = payload.characterName
+      if (payload.delta) accum.publicContent += payload.delta
+      if (payload.reasoningDelta) accum.reasoning += payload.reasoningDelta
+      flushBatched({})
+    })
+    const offReasoning = window.api.roleDialogue.onSnippetReasoning?.((payload) => {
+      if (payload.runId !== runId) return
+      if (payload.characterId !== characterId) return
+      if (!payload.delta) return
+      accum.reasoning += payload.delta
+      flushBatched({})
+    })
+
+    try {
+      const messages = await window.api.roleDialogue.generateSnippet({
+        runId,
+        characterIds: [characterId],
+        authorFact: null,
+        agentFallbackModelId: readAgentFallbackModelId(),
+      })
+      if (appendTo) {
+        // 追加到最后片段（保留全部已有消息）
+        await window.api.roleDialogue.updateSnippet(appendTo.id, {
+          messages: [...appendTo.messages, ...messages],
+        })
+        const snippets = await window.api.roleDialogue.listSnippets(runId)
+        set((s) => ({ snippetsByRun: { ...s.snippetsByRun, [runId]: snippets } }))
+      } else {
+        // 没有可追加的片段 -> 新建片段
+        const snippet = await window.api.roleDialogue.createSnippet({
+          runId,
+          order: streamOrder,
+          characterIds: [characterId],
+          messages,
+          authorFactUpdate: null,
+        })
+        set((s) => ({
+          snippetsByRun: { ...s.snippetsByRun, [runId]: [...(s.snippetsByRun[runId] || []), snippet] },
+        }))
+      }
+    } finally {
+      offChunk()
+      offDelta()
+      offReasoning?.()
+      set({ generating: false, generatingRunId: null, streamingSnippet: null })
       window.dispatchEvent(new Event('token-usage-updated'))
     }
   },
